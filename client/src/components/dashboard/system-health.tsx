@@ -8,46 +8,35 @@ interface SystemHealthItem {
 
 interface SystemHealthProps {
   className?: string;
-  systemHealth: SystemHealthItem[];
+  systemHealth?: SystemHealthItem[];
+  services?: Array<{ name: string; status: string; statusType: string }>;
+  performanceMetrics?: Array<{ name: string; value: number; color: string }>;
+  recentAlerts?: Array<{ type: string; icon: string; title: string; description: string; color: string }>;
   'data-testid'?: string;
 }
 
 const defaultServices = [
-  { name: "FastAPI Backend", status: "Healthy", statusType: "success" },
-  { name: "Celery Workers", status: "3 Active", statusType: "success" },
-  { name: "Redis Cache", status: "Connected", statusType: "success" },
-  { name: "PostgreSQL", status: "Online", statusType: "success" },
-  { name: "Alpaca API", status: "Rate Limited", statusType: "warning" },
-  { name: "Gemini AI", status: "Available", statusType: "success" },
+  { name: "API Server", status: "Unknown", statusType: "warning" },
+  { name: "Worker Process", status: "Unknown", statusType: "warning" },
+  { name: "Redis", status: "Unknown", statusType: "warning" },
+  { name: "Database", status: "Unknown", statusType: "warning" },
+  { name: "Alpaca API", status: "Unknown", statusType: "warning" },
+  { name: "Gemini AI", status: "Unknown", statusType: "warning" },
 ];
 
-const performanceMetrics = [
-  { name: "CPU Usage", value: 23, color: "bg-primary" },
-  { name: "Memory Usage", value: 67, color: "bg-chart-4" },
-  { name: "API Quota (Alpaca)", value: 89, color: "bg-destructive" },
+const defaultPerformanceMetrics = [
+  { name: "CPU Usage", value: 0, color: "bg-muted" },
+  { name: "Memory Usage", value: 0, color: "bg-muted" },
+  { name: "API Quota", value: 0, color: "bg-muted" },
 ];
 
-const recentAlerts = [
-  {
-    type: "warning",
-    icon: "fas fa-exclamation-triangle",
-    title: "API Rate Limit Warning",
-    description: "Alpaca API approaching daily limit",
-    color: "text-destructive bg-destructive/10"
-  },
-  {
-    type: "info",
-    icon: "fas fa-info-circle", 
-    title: "Strategy Rejected",
-    description: "MSFT strategy failed validation",
-    color: "text-chart-4 bg-chart-4/10"
-  }
-];
-
-export default function SystemHealth({ 
-  className, 
+export default function SystemHealth({
+  className,
   systemHealth,
-  'data-testid': dataTestId 
+  services = defaultServices,
+  performanceMetrics = defaultPerformanceMetrics,
+  recentAlerts = [],
+  'data-testid': dataTestId
 }: SystemHealthProps) {
   const getStatusColor = (statusType: string) => {
     switch (statusType) {
@@ -89,7 +78,7 @@ export default function SystemHealth({
         <div>
           <h4 className="font-medium mb-3">Service Status</h4>
           <div className="space-y-2">
-            {defaultServices.map((service, index) => (
+            {services.map((service, index) => (
               <div key={index} className="flex items-center justify-between">
                 <span className="text-sm">{service.name}</span>
                 <div className="flex items-center space-x-2">

@@ -11,11 +11,12 @@ import { useTradingData } from "@/hooks/use-trading-data";
 import { useWebSocket } from "@/hooks/use-websocket";
 
 export default function Dashboard() {
-  const { 
-    portfolioStatus, 
-    positions, 
-    auditLogs, 
+  const {
+    portfolioStatus,
+    positions,
+    auditLogs,
     systemMetrics,
+    aiPipelineStages,
     refetchPortfolio,
     refetchPositions
   } = useTradingData();
@@ -65,11 +66,11 @@ export default function Dashboard() {
               
               <MetricCard
                 title="Today's P&L"
-                value={`${portfolioStatus?.dayPnL >= 0 ? '+' : ''}$${portfolioStatus?.dayPnL?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}`}
-                change={portfolioStatus?.dayPnLPercent || 0}
-                changeLabel={`${portfolioStatus?.dayPnLPercent >= 0 ? '+' : ''}${portfolioStatus?.dayPnLPercent?.toFixed(2) || '0.00'}%`}
+                value={`${(portfolioStatus?.dayPnL ?? 0) >= 0 ? '+' : ''}$${(portfolioStatus?.dayPnL ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                change={portfolioStatus?.dayPnLPercent ?? 0}
+                changeLabel={`${(portfolioStatus?.dayPnLPercent ?? 0) >= 0 ? '+' : ''}${(portfolioStatus?.dayPnLPercent ?? 0).toFixed(2)}%`}
                 icon="chart-line"
-                isPositive={portfolioStatus?.dayPnL >= 0}
+                isPositive={(portfolioStatus?.dayPnL ?? 0) >= 0}
                 data-testid="metric-daily-pnl"
               />
               
@@ -102,30 +103,31 @@ export default function Dashboard() {
             />
             
             {/* AI Decision Pipeline */}
-            <AIPipeline 
+            <AIPipeline
               className="col-span-4"
               botStatus={systemMetrics?.bot_status || 'stopped'}
+              pipelineStages={aiPipelineStages}
               data-testid="ai-pipeline"
             />
             
             {/* Active Positions */}
-            <ActivePositions 
+            <ActivePositions
               className="col-span-7"
-              positions={positions || []}
+              positions={(positions as any[]) || []}
               data-testid="active-positions"
             />
-            
+
             {/* System Health */}
-            <SystemHealth 
+            <SystemHealth
               className="col-span-5"
-              systemHealth={systemMetrics?.system_health || []}
+              systemHealth={(systemMetrics as any)?.system_health || []}
               data-testid="system-health"
             />
-            
+
             {/* Activity Feed */}
-            <ActivityFeed 
+            <ActivityFeed
               className="col-span-12"
-              activities={auditLogs || []}
+              activities={(auditLogs as any[]) || []}
               data-testid="activity-feed"
             />
             

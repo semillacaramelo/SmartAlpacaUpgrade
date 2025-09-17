@@ -126,11 +126,12 @@ export class TaskManager {
       this.scheduleExecutionMonitor();
 
     } catch (error) {
-      wsManager?.broadcastAIPipelineUpdate('pipeline', 'failed', { error: error.message }, correlationId);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      wsManager?.broadcastAIPipelineUpdate('pipeline', 'failed', { error: errorMessage }, correlationId);
       await storage.createAuditLog({
         correlationId,
         eventType: 'AI_PIPELINE_FAILED',
-        eventData: { error: error.message },
+        eventData: { error: errorMessage },
         source: 'task_manager',
         level: 'error'
       });
@@ -139,8 +140,8 @@ export class TaskManager {
 
   async marketScanTask(correlationId: string): Promise<TaskResult> {
     try {
-      // Get available market data
-      const symbols = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA', 'META', 'AMZN'];
+      // Get available market data - using a more diverse set of liquid stocks
+      const symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX', 'SPY', 'QQQ'];
       const marketData = await tradingService.getMarketData(symbols);
       
       // Analyze market with AI
@@ -164,16 +165,17 @@ export class TaskManager {
         correlationId
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       await storage.createAiDecision({
         correlationId,
         stage: 'market_scan',
         status: 'failed',
-        errorMessage: error.message
+        errorMessage
       });
-      
+
       return {
         success: false,
-        error: error.message,
+        error: errorMessage,
         correlationId
       };
     }
@@ -181,13 +183,25 @@ export class TaskManager {
 
   async assetSelectionTask(correlationId: string, marketAnalysis: any): Promise<TaskResult> {
     try {
-      const availableAssets = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA', 'META', 'AMZN'];
+      const availableAssets = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX', 'SPY', 'QQQ'];
       const assetSelections = await selectAssets(marketAnalysis, availableAssets);
-      
-      // Select top 3 assets
-      const selectedAssets = assetSelections
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3);
+
+      // Select top 3 assets - handle different possible response formats
+      let selectedAssets = [];
+      if (Array.isArray(assetSelections)) {
+        // Sort by score if available, otherwise use random selection as fallback
+        if (assetSelections.length > 0 && typeof assetSelections[0] === 'object' && 'score' in assetSelections[0]) {
+          selectedAssets = assetSelections
+            .sort((a: any, b: any) => (b.score || 0) - (a.score || 0))
+            .slice(0, 3);
+        } else {
+          // Fallback: select first 3 assets if no score property
+          selectedAssets = assetSelections.slice(0, 3);
+        }
+      } else {
+        // If not an array, create a fallback selection
+        selectedAssets = availableAssets.slice(0, 3).map(symbol => ({ symbol, score: Math.random() }));
+      }
 
       await storage.createAiDecision({
         correlationId,
@@ -205,16 +219,17 @@ export class TaskManager {
         correlationId
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       await storage.createAiDecision({
         correlationId,
         stage: 'asset_selection',
         status: 'failed',
-        errorMessage: error.message
+        errorMessage
       });
-      
+
       return {
         success: false,
-        error: error.message,
+        error: errorMessage,
         correlationId
       };
     }
@@ -246,16 +261,17 @@ export class TaskManager {
         correlationId
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       await storage.createAiDecision({
         correlationId,
         stage: 'strategy_generation',
         status: 'failed',
-        errorMessage: error.message
+        errorMessage
       });
-      
+
       return {
         success: false,
-        error: error.message,
+        error: errorMessage,
         correlationId
       };
     }
@@ -301,16 +317,17 @@ export class TaskManager {
         correlationId
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       await storage.createAiDecision({
         correlationId,
         stage: 'validation',
         status: 'failed',
-        errorMessage: error.message
+        errorMessage
       });
-      
+
       return {
         success: false,
-        error: error.message,
+        error: errorMessage,
         correlationId
       };
     }
@@ -354,16 +371,17 @@ export class TaskManager {
         correlationId
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       await storage.createAiDecision({
         correlationId,
         stage: 'staging',
         status: 'failed',
-        errorMessage: error.message
+        errorMessage
       });
-      
+
       return {
         success: false,
-        error: error.message,
+        error: errorMessage,
         correlationId
       };
     }
@@ -382,7 +400,7 @@ export class TaskManager {
   private async executeStagedTrades() {
     try {
       const stagedStrategies = await storage.getStrategies('staged');
-      
+
       for (const strategy of stagedStrategies) {
         const marketData = await tradingService.getMarketData([strategy.symbol]);
         const evaluation = await tradingService.evaluateStrategy(
@@ -391,7 +409,7 @@ export class TaskManager {
           strategy.exitRules,
           marketData[0]
         );
-        
+
         if (evaluation.shouldEnter && evaluation.confidence > 0.7) {
           // Execute trade
           const orderRequest = {
@@ -399,28 +417,28 @@ export class TaskManager {
             quantity: 100, // This should come from risk parameters
             side: 'buy' as const,
             type: 'market' as const,
-            correlationId: strategy.correlationId,
+            correlationId: strategy.correlationId || undefined,
             strategyName: strategy.name,
             aiReasoning: `AI confidence: ${evaluation.confidence}`
           };
-          
+
           const orderResult = await tradingService.executeOrder(orderRequest);
-          
+
           // Update strategy status
           await storage.updateStrategy(strategy.id, { status: 'active' });
-          
+
           wsManager?.broadcastTradeExecution({
             strategy: strategy.name,
             symbol: strategy.symbol,
             side: 'buy',
             quantity: 100,
             price: orderResult.executedPrice,
-            correlationId: strategy.correlationId
+            correlationId: strategy.correlationId || undefined
           });
         }
       }
     } catch (error) {
-      console.error('Error executing staged trades:', error);
+      console.error('Error executing staged trades:', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -430,7 +448,7 @@ export class TaskManager {
       // Implementation depends on having a portfolio context
       console.log('Monitoring open positions...');
     } catch (error) {
-      console.error('Error monitoring positions:', error);
+      console.error('Error monitoring positions:', error instanceof Error ? error.message : String(error));
     }
   }
 

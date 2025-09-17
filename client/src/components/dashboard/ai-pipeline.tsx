@@ -1,9 +1,11 @@
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
+import { useWebSocket } from "@/hooks/use-websocket";
 
 interface AIPipelineProps {
   className?: string;
   botStatus: string;
+  pipelineStages?: PipelineStage[];
   'data-testid'?: string;
 }
 
@@ -15,54 +17,86 @@ interface PipelineStage {
   timestamp?: string;
 }
 
-export default function AIPipeline({ 
-  className, 
+const defaultStages: PipelineStage[] = [
+  { name: "Market Scan", description: "Waiting to start", status: "pending", icon: "fas fa-search" },
+  { name: "Asset Selection", description: "Waiting for market data", status: "pending", icon: "fas fa-chart-line" },
+  { name: "Strategy Generation", description: "Waiting for asset selection", status: "pending", icon: "fas fa-brain" },
+  { name: "Risk Validation", description: "Waiting for strategy", status: "pending", icon: "fas fa-shield-alt" },
+  { name: "Trade Staging", description: "Waiting for validation", status: "pending", icon: "fas fa-cog" },
+  { name: "Execution", description: "Waiting for staging", status: "pending", icon: "fas fa-play" },
+];
+
+export default function AIPipeline({
+  className,
   botStatus,
-  'data-testid': dataTestId 
+  pipelineStages,
+  'data-testid': dataTestId
 }: AIPipelineProps) {
-  const [stages, setStages] = useState<PipelineStage[]>([
-    { name: "Market Scan", description: "Completed 2 min ago", status: "completed", icon: "fas fa-check" },
-    { name: "Asset Selection", description: "TSLA, NVDA, AAPL selected", status: "completed", icon: "fas fa-check" },
-    { name: "Strategy Generation", description: "AI generating strategy...", status: "active", icon: "fas fa-brain" },
-    { name: "Risk Validation", description: "Waiting for strategy...", status: "pending", icon: "fas fa-clock" },
-    { name: "Trade Staging", description: "Pending validation...", status: "pending", icon: "fas fa-clock" },
-    { name: "Execution", description: "Ready for deployment", status: "pending", icon: "fas fa-clock" },
-  ]);
+  const [stages, setStages] = useState<PipelineStage[]>(pipelineStages || defaultStages);
+  const [nextCycleTime, setNextCycleTime] = useState("15:00");
+  const { lastMessage } = useWebSocket();
 
-  const [nextCycleTime, setNextCycleTime] = useState("14:32");
-
+  // Update pipeline stages based on real-time WebSocket data
   useEffect(() => {
-    if (botStatus === 'running') {
-      // Simulate pipeline progression when bot is running
-      const interval = setInterval(() => {
-        setStages(current => {
-          const newStages = [...current];
-          const activeIndex = newStages.findIndex(s => s.status === 'active');
-          const pendingIndex = newStages.findIndex(s => s.status === 'pending');
-          
-          if (activeIndex >= 0 && Math.random() > 0.7) {
-            newStages[activeIndex].status = 'completed';
-            if (pendingIndex >= 0) {
-              newStages[pendingIndex].status = 'active';
+    if (lastMessage && lastMessage.type === 'ai_pipeline_update') {
+      const { stage, status, correlationId } = lastMessage.data;
+
+      setStages(current => {
+        const newStages = [...current];
+        const stageIndex = newStages.findIndex(s =>
+          s.name.toLowerCase().replace(' ', '_') === stage
+        );
+
+        if (stageIndex >= 0) {
+          // Update the specific stage status
+          newStages[stageIndex].status = status;
+          newStages[stageIndex].timestamp = new Date().toLocaleTimeString();
+
+          // Update descriptions based on status
+          switch (status) {
+            case 'started':
+              newStages[stageIndex].description = `Started at ${newStages[stageIndex].timestamp}`;
+              break;
+            case 'completed':
+              newStages[stageIndex].description = `Completed at ${newStages[stageIndex].timestamp}`;
+              break;
+            case 'failed':
+              newStages[stageIndex].description = `Failed at ${newStages[stageIndex].timestamp}`;
+              break;
+          }
+
+          // If a stage completed, mark the next pending stage as active
+          if (status === 'completed' && stageIndex < newStages.length - 1) {
+            const nextStageIndex = stageIndex + 1;
+            if (newStages[nextStageIndex].status === 'pending') {
+              newStages[nextStageIndex].status = 'active';
+              newStages[nextStageIndex].description = 'Processing...';
             }
           }
-          
-          return newStages;
-        });
-      }, 3000);
+        }
 
-      return () => clearInterval(interval);
+        return newStages;
+      });
     }
-  }, [botStatus]);
+  }, [lastMessage]);
 
-  // Update countdown timer
+  // Update countdown timer based on bot status
   useEffect(() => {
+    if (botStatus === 'running') {
+      // Reset timer when bot starts running
+      setNextCycleTime("15:00");
+    }
+
     const interval = setInterval(() => {
       setNextCycleTime(prev => {
         const [minutes, seconds] = prev.split(':').map(Number);
         const totalSeconds = minutes * 60 + seconds;
-        if (totalSeconds <= 1) return "15:00"; // Reset to 15 minutes
-        
+
+        if (totalSeconds <= 1) {
+          // When timer reaches zero, reset to 15 minutes if bot is running
+          return botStatus === 'running' ? "15:00" : "00:00";
+        }
+
         const newTotal = totalSeconds - 1;
         const newMinutes = Math.floor(newTotal / 60);
         const newSeconds = newTotal % 60;
@@ -71,7 +105,7 @@ export default function AIPipeline({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [botStatus]);
 
   const getStageStyles = (status: string) => {
     switch (status) {

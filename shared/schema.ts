@@ -151,3 +151,37 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type SystemHealth = typeof systemHealth.$inferSelect;
 export type InsertSystemHealth = z.infer<typeof insertSystemHealthSchema>;
+
+// API Response Types
+export interface PortfolioStatus {
+  portfolioValue: number;
+  dayPnL: number;
+  dayPnLPercent: number;
+  activePositions: number;
+  winRate: number;
+  cashBalance: number;
+  totalPnL: number;
+}
+
+export interface SystemMetrics {
+  bot_status: 'running' | 'stopped' | 'error';
+  system_health: SystemHealth[];
+  uptime: number;
+  memory_usage: number;
+  cpu_usage: number;
+}
+
+export interface PositionData {
+  id: string;
+  symbol: string;
+  quantity: number;
+  entryPrice: number;
+  currentPrice: number;
+  marketValue: number;
+  unrealizedPnL: number;
+  unrealizedPnLPercent: number;
+  isOpen: boolean;
+  entryDate: string;
+  strategyId?: string;
+  correlationId?: string;
+}
