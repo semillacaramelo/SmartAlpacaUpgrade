@@ -3,10 +3,13 @@ export default {
   preset: "ts-jest/presets/default-esm",
   testEnvironment: "jsdom",
   extensionsToTreatAsEsm: [".ts", ".tsx"],
+  transformIgnorePatterns: [
+    "node_modules/(?!(bullmq|msgpackr|@google/genai|uuid|ioredis)/)"
+  ],
   moduleNameMapper: {
     "^(\\.{1,2}/.*)\\.js$": "$1",
     "^@shared/(.*)$": "<rootDir>/shared/$1",
-    "^@/(.*)$": "<rootDir>/src/$1",
+    "^@/(.*)$": "<rootDir>/client/src/$1",
     "\\.(css|less|sass|scss)$": "identity-obj-proxy",
   },
   transform: {
@@ -14,6 +17,9 @@ export default {
       "ts-jest",
       {
         useESM: true,
+        tsconfig: {
+          jsx: "react-jsx"
+        }
       },
     ],
   },

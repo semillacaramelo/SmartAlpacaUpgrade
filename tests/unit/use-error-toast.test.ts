@@ -1,4 +1,4 @@
-import { renderHook, act } from "@testing-library/react-hooks";
+import { renderHook, act } from "@testing-library/react";
 import { useErrorToast } from "@/hooks/use-error-toast";
 import { useToast } from "@/hooks/use-toast";
 

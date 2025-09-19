@@ -24,12 +24,14 @@ export function useMetrics() {
   const [historicalMetrics, setHistoricalMetrics] = useState<
     HistoricalMetric[]
   >([]);
-  const { socket } = useWebSocket();
+  const { isConnected, lastMessage } = useWebSocket();
 
   useEffect(() => {
-    if (!socket) return;
+    if (!isConnected || !lastMessage) return;
 
-    socket.on("metrics", (data: Metrics) => {
+    // Check if the message is metrics data
+    if (lastMessage.type === "metrics") {
+      const data = lastMessage.data as Metrics;
       setMetrics(data);
       setHistoricalMetrics((prev) =>
         [
@@ -42,12 +44,8 @@ export function useMetrics() {
           },
         ].slice(-60)
       ); // Keep last 60 data points
-    });
-
-    return () => {
-      socket.off("metrics");
-    };
-  }, [socket]);
+    }
+  }, [isConnected, lastMessage]);
 
   return { metrics, historicalMetrics };
 }

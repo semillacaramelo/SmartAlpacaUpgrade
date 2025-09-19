@@ -69,7 +69,7 @@ export const generateMockTrade = (overrides = {}) => ({
 });
 
 // API mocking utilities
-export const mockApiResponse = <T>(data: T, status = 200) => {
+export const mockApiResponse = <T,>(data: T, status = 200) => {
   return {
     ok: status >= 200 && status < 300,
     status,

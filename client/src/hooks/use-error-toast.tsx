@@ -18,7 +18,6 @@ export function useErrorToast() {
       description: message,
       duration: options.duration || DEFAULT_DURATION,
       variant: "destructive",
-      icon: <XCircle className="h-4 w-4" />,
     });
   };
 
@@ -27,8 +26,7 @@ export function useErrorToast() {
       title: options.title || "Warning",
       description: message,
       duration: options.duration || DEFAULT_DURATION,
-      variant: "warning",
-      icon: <AlertTriangle className="h-4 w-4" />,
+      variant: "default",
     });
   };
 
@@ -38,7 +36,6 @@ export function useErrorToast() {
       description: message,
       duration: options.duration || DEFAULT_DURATION,
       variant: "default",
-      icon: <Info className="h-4 w-4" />,
     });
   };
 

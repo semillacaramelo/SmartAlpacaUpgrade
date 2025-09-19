@@ -20,31 +20,42 @@ describe("Position Management System Integration", () => {
   let riskControl: RiskControlService;
 
   const mockTradeExecution: TradeExecution = {
+    id: "exec123",
     orderId: "order123",
     symbol: "AAPL",
     quantity: 100,
     price: 150.0,
     side: "buy",
-    timestamp: new Date(),
-    executionId: "exec123",
-    commission: 1.5,
+    executedAt: new Date(),
+    correlationId: "corr123",
+    strategyName: "test-strategy",
   };
 
   const mockPositionUpdate: PositionUpdate = {
-    symbol: "AAPL",
-    quantity: 100,
-    averageEntryPrice: 150.0,
-    currentPrice: 155.0,
-    unrealizedPL: 500.0,
-    realizedPL: 0,
-    holdingPeriod: 86400000, // 1 day in milliseconds
+    type: "position_update",
+    data: {
+      symbol: "AAPL",
+      quantity: 100,
+      averageEntryPrice: 150.0,
+      currentPrice: 155.0,
+      marketValue: 15500,
+      unrealizedPnL: 500.0,
+      realizedPnL: 0,
+      dayPnL: 500.0,
+    },
+    timestamp: new Date().toISOString(),
   };
 
   const mockRiskMetrics: RiskMetrics = {
-    positionSize: 15000, // $15,000
-    portfolioExposure: 0.15, // 15%
-    drawdown: 0.01, // 1%
-    valueAtRisk: 750, // $750
+    sharpeRatio: 1.5,
+    maxDrawdown: 0.01, // 1%
+    volatility: 0.15,
+    beta: 1.1,
+    alpha: 0.05,
+    winRate: 0.65,
+    profitFactor: 1.8,
+    averageReturn: 0.12,
+    totalReturn: 0.25,
   };
 
   beforeEach(() => {
@@ -114,7 +125,12 @@ describe("Position Management System Integration", () => {
     test("should trigger stop loss when threshold exceeded", async () => {
       const badPosition: PositionUpdate = {
         ...mockPositionUpdate,
-        currentPrice: 146.0, // More than 2% loss
+        data: {
+          ...mockPositionUpdate.data,
+          currentPrice: 146.0, // More than 2% loss
+          unrealizedPnL: -400.0,
+          dayPnL: -400.0,
+        },
       };
       await lifecycleManager.updatePosition(badPosition);
       const shouldStop = await riskControl.checkStopLoss("AAPL");

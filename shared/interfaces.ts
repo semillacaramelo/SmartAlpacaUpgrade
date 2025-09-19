@@ -30,3 +30,30 @@ export interface PositionUpdate {
   data: Position;
   timestamp: string;
 }
+
+// Trading and Execution Interfaces
+export interface TradeExecution {
+  id: string;
+  symbol: string;
+  side: "buy" | "sell";
+  quantity: number;
+  price: number;
+  executedAt: Date;
+  orderId: string;
+  correlationId?: string;
+  strategyName?: string;
+  aiReasoning?: string;
+}
+
+// Risk Management Interfaces
+export interface RiskMetrics {
+  sharpeRatio: number;
+  maxDrawdown: number;
+  volatility: number;
+  beta: number;
+  alpha: number;
+  winRate: number;
+  profitFactor: number;
+  averageReturn: number;
+  totalReturn: number;
+}

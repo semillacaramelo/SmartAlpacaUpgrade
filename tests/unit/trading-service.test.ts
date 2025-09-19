@@ -249,9 +249,13 @@ describe("TradingService", () => {
       // Mock order placement
       (alpacaService.placeOrder as jest.Mock).mockResolvedValue({
         id: "test-order-id",
+        symbol: "AAPL",
+        qty: 50,
+        side: "buy",
+        type: "market",
         status: "filled",
-        filled_avg_price: "150.00",
-        filled_qty: "50",
+        filled_avg_price: 150.0,
+        filled_qty: 50,
         filled_at: new Date().toISOString(),
       });
 
@@ -267,10 +271,13 @@ describe("TradingService", () => {
 
       const result = await tradingService.executeOrder(orderRequest);
 
-      expect(result).toBeDefined();
-      expect(result.orderId).toBe("test-order-id");
-      expect(result.status).toBe("filled");
-      expect(result.executedQuantity).toBe("50");
+      expect(result).toBe(true);
+      expect(alpacaService.placeOrder).toHaveBeenCalledWith({
+        symbol: orderRequest.symbol,
+        qty: orderRequest.quantity,
+        side: orderRequest.side,
+        type: orderRequest.type,
+      });
       console.log("Order execution with calculated quantity verified");
     });
 

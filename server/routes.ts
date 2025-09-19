@@ -269,44 +269,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
-          dayPnL: "0", // This would need calculation from positions
-          totalPnL: "0", // This would need calculation from positions
-        });
-      }
-
-      // Calculate day P&L from positions
-      const dayPnL = positions.reduce(
-        (total, pos) => total + pos.unrealized_pl,
-        0
-      );
-      const dayPnLPercent =
-        account.portfolio_value > 0
-          ? (dayPnL / account.portfolio_value) * 100
-          : 0;
-
-      res.json({
-        portfolioValue: account.portfolio_value,
-        dayPnL,
-        dayPnLPercent,
-        activePositions: positions.length,
-        winRate: 0, // Would need historical trade data
-        cashBalance: account.cash,
-        totalPnL: 0, // Would need historical calculation
-        open_positions: positions.length,
-        positions: positions.map((pos) => ({
-          symbol: pos.symbol,
-          quantity: pos.qty,
-          entryPrice: pos.avg_entry_price,
-          currentPrice: pos.current_price,
-          marketValue: pos.market_value,
-          unrealizedPnL: pos.unrealized_pl,
-          unrealizedPnLPercent: pos.unrealized_plpc,
-        })),
-      });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
 
   // Positions endpoints
   app.get("/api/positions/open", async (req, res) => {

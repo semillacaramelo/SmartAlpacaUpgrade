@@ -200,6 +200,9 @@ class PortfolioSimulation {
 }
 
 export class TradingService {
+  private totalTrades: number = 0;
+  private successfulTrades: number = 0;
+
   async getMarketData(symbols: string[]): Promise<MarketData[]> {
     try {
       const alpacaData = await alpacaService.getMarketData(symbols);
@@ -224,17 +227,28 @@ export class TradingService {
     const startTimer = metricsCollector.startPerformanceTimer('orderExecution');
     this.totalTrades++;
     
+    // Validate order parameters
+    if (order.quantity <= 0) {
+      throw new Error("Invalid quantity: must be greater than 0");
+    }
+    
     try {
       const expectedPrice = order.type === 'market' ? 
         await this.getCurrentPrice(order.symbol) : 
         order.price!;
 
-      const result = await alpacaService.submitOrder(order);
+      const result = await alpacaService.placeOrder({
+        symbol: order.symbol,
+        qty: order.quantity,
+        side: order.side,
+        type: order.type,
+        ...(order.price && { limit_price: order.price }),
+      });
       const endTime = startTimer();
 
       if (result) {
         this.successfulTrades++;
-        const executedPrice = result.filled_avg_price;
+        const executedPrice = result.filled_avg_price || expectedPrice;
         const slippage = Math.abs((executedPrice - expectedPrice) / expectedPrice);
 
         metricsCollector.updateTradingMetrics({
@@ -254,6 +268,15 @@ export class TradingService {
       });
       throw error;
     }
+  }
+
+  private async getCurrentPrice(symbol: string): Promise<number> {
+    const marketData = await this.getMarketData([symbol]);
+    if (marketData.length === 0) {
+      throw new Error(`No market data available for ${symbol}`);
+    }
+    return marketData[0].price;
+  }
 
   async backtestStrategy(
     symbol: string,

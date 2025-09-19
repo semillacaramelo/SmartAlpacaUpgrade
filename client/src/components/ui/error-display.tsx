@@ -34,7 +34,7 @@ export function ErrorDisplay({
 
   return (
     <Alert
-      variant="outline"
+      variant={severity === "error" ? "destructive" : "default"}
       className={cn(severityStyles[severity], className)}
     >
       <Icon className="h-4 w-4" />
