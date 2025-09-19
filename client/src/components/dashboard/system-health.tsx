@@ -33,8 +33,8 @@ const defaultPerformanceMetrics = [
 export default function SystemHealth({
   className,
   systemHealth,
-  services = defaultServices,
-  performanceMetrics = defaultPerformanceMetrics,
+  services,
+  performanceMetrics,
   recentAlerts = [],
   'data-testid': dataTestId
 }: SystemHealthProps) {
@@ -78,7 +78,7 @@ export default function SystemHealth({
         <div>
           <h4 className="font-medium mb-3">Service Status</h4>
           <div className="space-y-2">
-            {services.map((service, index) => (
+            {(services || defaultServices).map((service, index) => (
               <div key={index} className="flex items-center justify-between">
                 <span className="text-sm">{service.name}</span>
                 <div className="flex items-center space-x-2">
@@ -91,19 +91,19 @@ export default function SystemHealth({
             ))}
           </div>
         </div>
-        
+
         {/* Performance Metrics */}
         <div>
           <h4 className="font-medium mb-3">Performance</h4>
           <div className="space-y-3">
-            {performanceMetrics.map((metric, index) => (
+            {(performanceMetrics || defaultPerformanceMetrics).map((metric, index) => (
               <div key={index}>
                 <div className="flex justify-between text-sm mb-1">
                   <span>{metric.name}</span>
                   <span>{metric.value}%</span>
                 </div>
                 <div className="w-full bg-muted rounded-full h-2">
-                  <div 
+                  <div
                     className={cn("h-2 rounded-full", metric.color)}
                     style={{ width: `${metric.value}%` }}
                   ></div>

@@ -1,9 +1,31 @@
-import { 
-  users, portfolios, positions, trades, strategies, aiDecisions, auditLogs, systemHealth,
-  type User, type InsertUser, type Portfolio, type InsertPortfolio, 
-  type Position, type InsertPosition, type Trade, type InsertTrade,
-  type Strategy, type InsertStrategy, type AiDecision, type InsertAiDecision,
-  type AuditLog, type InsertAuditLog, type SystemHealth, type InsertSystemHealth
+import {
+  users,
+  portfolios,
+  positions,
+  trades,
+  strategies,
+  aiDecisions,
+  auditLogs,
+  systemHealth,
+  userSettings,
+  type User,
+  type InsertUser,
+  type Portfolio,
+  type InsertPortfolio,
+  type Position,
+  type InsertPosition,
+  type Trade,
+  type InsertTrade,
+  type Strategy,
+  type InsertStrategy,
+  type AiDecision,
+  type InsertAiDecision,
+  type AuditLog,
+  type InsertAuditLog,
+  type SystemHealth,
+  type InsertSystemHealth,
+  type UserSettings,
+  type InsertUserSettings,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -25,7 +47,11 @@ export interface IStorage {
   getPosition(id: string): Promise<Position | undefined>;
   createPosition(position: InsertPosition): Promise<Position>;
   updatePosition(id: string, updates: Partial<Position>): Promise<Position>;
-  closePosition(id: string, exitPrice: string, realizedPnL: string): Promise<Position>;
+  closePosition(
+    id: string,
+    exitPrice: string,
+    realizedPnL: string
+  ): Promise<Position>;
 
   // Trades
   getTrades(portfolioId: string, limit?: number): Promise<Trade[]>;
@@ -47,7 +73,14 @@ export interface IStorage {
 
   // System Health
   getSystemHealth(): Promise<SystemHealth[]>;
-  updateSystemHealth(service: string, status: string, metrics: any): Promise<SystemHealth>;
+  updateSystemHealth(
+    service: string,
+    status: string,
+    metrics: any
+  ): Promise<SystemHealth>;
+
+  // User Settings - now part of users table
+  updateUserSettings(userId: string, settings: Partial<User>): Promise<User>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -57,7 +90,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username));
     return user || undefined;
   }
 
@@ -67,21 +103,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPortfolio(userId: string): Promise<Portfolio | undefined> {
-    const [portfolio] = await db.select().from(portfolios).where(eq(portfolios.userId, userId));
+    const [portfolio] = await db
+      .select()
+      .from(portfolios)
+      .where(eq(portfolios.userId, userId));
     return portfolio || undefined;
   }
 
   async getPortfolioById(portfolioId: string): Promise<Portfolio | undefined> {
-    const [portfolio] = await db.select().from(portfolios).where(eq(portfolios.id, portfolioId));
+    const [portfolio] = await db
+      .select()
+      .from(portfolios)
+      .where(eq(portfolios.id, portfolioId));
     return portfolio || undefined;
   }
 
   async createPortfolio(insertPortfolio: InsertPortfolio): Promise<Portfolio> {
-    const [portfolio] = await db.insert(portfolios).values(insertPortfolio).returning();
+    const [portfolio] = await db
+      .insert(portfolios)
+      .values(insertPortfolio)
+      .returning();
     return portfolio;
   }
 
-  async updatePortfolio(id: string, updates: Partial<Portfolio>): Promise<Portfolio> {
+  async updatePortfolio(
+    id: string,
+    updates: Partial<Portfolio>
+  ): Promise<Portfolio> {
     const [portfolio] = await db
       .update(portfolios)
       .set({ ...updates, updatedAt: sql`NOW()` })
@@ -94,20 +142,31 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(positions)
-      .where(and(eq(positions.portfolioId, portfolioId), eq(positions.isOpen, true)));
+      .where(
+        and(eq(positions.portfolioId, portfolioId), eq(positions.isOpen, true))
+      );
   }
 
   async getPosition(id: string): Promise<Position | undefined> {
-    const [position] = await db.select().from(positions).where(eq(positions.id, id));
+    const [position] = await db
+      .select()
+      .from(positions)
+      .where(eq(positions.id, id));
     return position || undefined;
   }
 
   async createPosition(insertPosition: InsertPosition): Promise<Position> {
-    const [position] = await db.insert(positions).values(insertPosition).returning();
+    const [position] = await db
+      .insert(positions)
+      .values(insertPosition)
+      .returning();
     return position;
   }
 
-  async updatePosition(id: string, updates: Partial<Position>): Promise<Position> {
+  async updatePosition(
+    id: string,
+    updates: Partial<Position>
+  ): Promise<Position> {
     const [position] = await db
       .update(positions)
       .set(updates)
@@ -116,7 +175,11 @@ export class DatabaseStorage implements IStorage {
     return position;
   }
 
-  async closePosition(id: string, exitPrice: string, realizedPnL: string): Promise<Position> {
+  async closePosition(
+    id: string,
+    exitPrice: string,
+    realizedPnL: string
+  ): Promise<Position> {
     const [position] = await db
       .update(positions)
       .set({
@@ -145,7 +208,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStrategies(status?: string): Promise<Strategy[]> {
-    const query = db.select().from(strategies).orderBy(desc(strategies.createdAt));
+    const query = db
+      .select()
+      .from(strategies)
+      .orderBy(desc(strategies.createdAt));
     if (status) {
       return await query.where(eq(strategies.status, status));
     }
@@ -153,16 +219,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStrategy(id: string): Promise<Strategy | undefined> {
-    const [strategy] = await db.select().from(strategies).where(eq(strategies.id, id));
+    const [strategy] = await db
+      .select()
+      .from(strategies)
+      .where(eq(strategies.id, id));
     return strategy || undefined;
   }
 
   async createStrategy(insertStrategy: InsertStrategy): Promise<Strategy> {
-    const [strategy] = await db.insert(strategies).values(insertStrategy).returning();
+    const [strategy] = await db
+      .insert(strategies)
+      .values(insertStrategy)
+      .returning();
     return strategy;
   }
 
-  async updateStrategy(id: string, updates: Partial<Strategy>): Promise<Strategy> {
+  async updateStrategy(
+    id: string,
+    updates: Partial<Strategy>
+  ): Promise<Strategy> {
     const [strategy] = await db
       .update(strategies)
       .set(updates)
@@ -179,8 +254,13 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(aiDecisions.createdAt));
   }
 
-  async createAiDecision(insertDecision: InsertAiDecision): Promise<AiDecision> {
-    const [decision] = await db.insert(aiDecisions).values(insertDecision).returning();
+  async createAiDecision(
+    insertDecision: InsertAiDecision
+  ): Promise<AiDecision> {
+    const [decision] = await db
+      .insert(aiDecisions)
+      .values(insertDecision)
+      .returning();
     return decision;
   }
 
@@ -201,16 +281,32 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(systemHealth);
   }
 
-  async updateSystemHealth(service: string, status: string, metrics: any): Promise<SystemHealth> {
+  async updateSystemHealth(
+    service: string,
+    status: string,
+    metrics: any
+  ): Promise<SystemHealth> {
     const [health] = await db
       .insert(systemHealth)
       .values({ service, status, metrics })
       .onConflictDoUpdate({
         target: [systemHealth.service],
-        set: { status, metrics, lastCheck: sql`NOW()` }
+        set: { status, metrics, lastCheck: sql`NOW()` },
       })
       .returning();
     return health;
+  }
+
+  async updateUserSettings(
+    userId: string,
+    settings: Partial<User>
+  ): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ ...settings, updatedAt: sql`NOW()` })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
   }
 }
 

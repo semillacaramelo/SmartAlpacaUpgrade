@@ -1,19 +1,40 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, decimal, integer, timestamp, boolean, jsonb, uuid } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  varchar,
+  decimal,
+  integer,
+  timestamp,
+  boolean,
+  jsonb,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   email: text("email"),
+  // API Settings fields added to users table
+  alpacaApiKey: text("alpaca_api_key"),
+  alpacaSecretKey: text("alpaca_secret_key"),
+  geminiApiKey: text("gemini_api_key"),
+  enablePaperTrading: boolean("enable_paper_trading").default(true),
+  enableRealTrading: boolean("enable_real_trading").default(false),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const portfolios = pgTable("portfolios", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id),
   totalValue: decimal("total_value", { precision: 15, scale: 2 }).notNull(),
   cashBalance: decimal("cash_balance", { precision: 15, scale: 2 }).notNull(),
@@ -23,7 +44,9 @@ export const portfolios = pgTable("portfolios", {
 });
 
 export const positions = pgTable("positions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   portfolioId: varchar("portfolio_id").references(() => portfolios.id),
   symbol: text("symbol").notNull(),
   quantity: integer("quantity").notNull(),
@@ -41,7 +64,9 @@ export const positions = pgTable("positions", {
 });
 
 export const trades = pgTable("trades", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   portfolioId: varchar("portfolio_id").references(() => portfolios.id),
   positionId: varchar("position_id").references(() => positions.id),
   symbol: text("symbol").notNull(),
@@ -56,7 +81,9 @@ export const trades = pgTable("trades", {
 });
 
 export const strategies = pgTable("strategies", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   symbol: text("symbol").notNull(),
   entryRules: text("entry_rules").notNull(),
@@ -71,7 +98,9 @@ export const strategies = pgTable("strategies", {
 });
 
 export const aiDecisions = pgTable("ai_decisions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   correlationId: text("correlation_id").notNull(),
   stage: text("stage").notNull(), // 'market_scan', 'asset_selection', 'strategy_generation', 'validation', 'staging', 'execution'
   input: jsonb("input"),
@@ -83,8 +112,26 @@ export const aiDecisions = pgTable("ai_decisions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const userSettings = pgTable("user_settings", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .references(() => users.id)
+    .notNull(),
+  alpacaApiKey: text("alpaca_api_key"),
+  alpacaSecretKey: text("alpaca_secret_key"),
+  geminiApiKey: text("gemini_api_key"),
+  enablePaperTrading: boolean("enable_paper_trading").default(true),
+  enableRealTrading: boolean("enable_real_trading").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const auditLogs = pgTable("audit_logs", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   correlationId: text("correlation_id"),
   eventType: text("event_type").notNull(),
   eventData: jsonb("event_data"),
@@ -95,7 +142,9 @@ export const auditLogs = pgTable("audit_logs", {
 });
 
 export const systemHealth = pgTable("system_health", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   service: text("service").notNull(),
   status: text("status").notNull(), // 'healthy', 'degraded', 'down'
   metrics: jsonb("metrics"),
@@ -115,27 +164,69 @@ export const portfoliosRelations = relations(portfolios, ({ one, many }) => ({
 }));
 
 export const positionsRelations = relations(positions, ({ one, many }) => ({
-  portfolio: one(portfolios, { fields: [positions.portfolioId], references: [portfolios.id] }),
+  portfolio: one(portfolios, {
+    fields: [positions.portfolioId],
+    references: [portfolios.id],
+  }),
   trades: many(trades),
 }));
 
 export const tradesRelations = relations(trades, ({ one }) => ({
-  portfolio: one(portfolios, { fields: [trades.portfolioId], references: [portfolios.id] }),
-  position: one(positions, { fields: [trades.positionId], references: [positions.id] }),
+  portfolio: one(portfolios, {
+    fields: [trades.portfolioId],
+    references: [portfolios.id],
+  }),
+  position: one(positions, {
+    fields: [trades.positionId],
+    references: [positions.id],
+  }),
 }));
 
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
-export const insertPortfolioSchema = createInsertSchema(portfolios).omit({ id: true, updatedAt: true });
-export const insertPositionSchema = createInsertSchema(positions).omit({ id: true, entryDate: true, exitDate: true });
-export const insertTradeSchema = createInsertSchema(trades).omit({ id: true, executedAt: true });
-export const insertStrategySchema = createInsertSchema(strategies).omit({ id: true, createdAt: true });
-export const insertAiDecisionSchema = createInsertSchema(aiDecisions).omit({ id: true, createdAt: true });
-export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, timestamp: true });
-export const insertSystemHealthSchema = createInsertSchema(systemHealth).omit({ id: true, lastCheck: true });
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertPortfolioSchema = createInsertSchema(portfolios).omit({
+  id: true,
+  updatedAt: true,
+});
+export const insertPositionSchema = createInsertSchema(positions).omit({
+  id: true,
+  entryDate: true,
+  exitDate: true,
+});
+export const insertTradeSchema = createInsertSchema(trades).omit({
+  id: true,
+  executedAt: true,
+});
+export const insertStrategySchema = createInsertSchema(strategies).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertAiDecisionSchema = createInsertSchema(aiDecisions).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
+  id: true,
+  timestamp: true,
+});
+export const insertSystemHealthSchema = createInsertSchema(systemHealth).omit({
+  id: true,
+  lastCheck: true,
+});
+
+export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 
 // Types
 export type User = typeof users.$inferSelect;
+export type UserSettings = typeof userSettings.$inferSelect;
+export type InsertUserSettings = z.infer<typeof insertUserSettingsSchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type Portfolio = typeof portfolios.$inferSelect;
 export type InsertPortfolio = z.infer<typeof insertPortfolioSchema>;
@@ -164,7 +255,7 @@ export interface PortfolioStatus {
 }
 
 export interface SystemMetrics {
-  bot_status: 'running' | 'stopped' | 'error';
+  bot_status: "running" | "stopped" | "error";
   system_health: SystemHealth[];
   uptime: number;
   memory_usage: number;

@@ -1,7 +1,7 @@
 import { storage } from "../storage";
-import { alpacaService, AlpacaMarketData } from "./alpaca";
+import { alpacaService } from "./alpaca";
 import { strategyEvaluator, MarketBar } from "./evaluator";
-import { v4 as uuidv4 } from 'uuid';
+import { metricsCollector } from "./metrics";
 
 export interface MarketData {
   symbol: string;
@@ -18,8 +18,8 @@ export interface MarketData {
 export interface OrderRequest {
   symbol: string;
   quantity: number;
-  side: 'buy' | 'sell';
-  type: 'market' | 'limit';
+  side: "buy" | "sell";
+  type: "market" | "limit";
   price?: number;
   correlationId?: string;
   strategyName?: string;
@@ -47,6 +47,32 @@ interface Position {
   pnl?: number;
 }
 
+interface HistoricalBar {
+  timestamp: Date;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+interface RiskParameters {
+  riskPerTrade: number;
+  stopLossPercent: number;
+}
+
+interface OrderResult {
+  orderId: string;
+  status: string;
+  executedPrice?: number;
+  executedQuantity: string;
+  executedAt: Date;
+}
+
+interface SystemHealthMetrics {
+  [key: string]: any;
+}
+
 class PortfolioSimulation {
   private initialCash: number;
   private cash: number;
@@ -68,17 +94,17 @@ class PortfolioSimulation {
         symbol,
         quantity,
         entryPrice: price,
-        entryDate: date
+        entryDate: date,
       });
     }
   }
 
   exitPosition(symbol: string, price: number, date: Date) {
-    const positionIndex = this.positions.findIndex(p => p.symbol === symbol);
+    const positionIndex = this.positions.findIndex((p) => p.symbol === symbol);
     if (positionIndex >= 0) {
       const position = this.positions[positionIndex];
       const proceeds = position.quantity * price;
-      const pnl = proceeds - (position.quantity * position.entryPrice);
+      const pnl = proceeds - position.quantity * position.entryPrice;
 
       position.exitPrice = price;
       position.exitDate = date;
@@ -101,13 +127,17 @@ class PortfolioSimulation {
   getPortfolioValue(currentPrices: { [symbol: string]: number } = {}): number {
     let totalValue = this.cash;
     for (const position of this.positions) {
-      const currentPrice = currentPrices[position.symbol] || position.entryPrice;
+      const currentPrice =
+        currentPrices[position.symbol] || position.entryPrice;
       totalValue += position.quantity * currentPrice;
     }
     return totalValue;
   }
 
-  recordPortfolioValue(date: Date, currentPrices: { [symbol: string]: number } = {}) {
+  recordPortfolioValue(
+    date: Date,
+    currentPrices: { [symbol: string]: number } = {}
+  ) {
     const value = this.getPortfolioValue(currentPrices);
     this.portfolioValues.push(value);
     this.dates.push(date);
@@ -120,13 +150,18 @@ class PortfolioSimulation {
     // Calculate returns for Sharpe ratio
     const returns: number[] = [];
     for (let i = 1; i < this.portfolioValues.length; i++) {
-      const dailyReturn = (this.portfolioValues[i] - this.portfolioValues[i - 1]) / this.portfolioValues[i - 1];
+      const dailyReturn =
+        (this.portfolioValues[i] - this.portfolioValues[i - 1]) /
+        this.portfolioValues[i - 1];
       returns.push(dailyReturn);
     }
 
     // Sharpe ratio (annualized, assuming daily returns)
     const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-    const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length);
+    const stdDev = Math.sqrt(
+      returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) /
+        returns.length
+    );
     const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
 
     // Max drawdown
@@ -139,12 +174,17 @@ class PortfolioSimulation {
     }
 
     // Win rate
-    const profitableTrades = this.closedPositions.filter(p => (p.pnl || 0) > 0).length;
+    const profitableTrades = this.closedPositions.filter(
+      (p) => (p.pnl || 0) > 0
+    ).length;
     const totalTrades = this.closedPositions.length;
     const winRate = totalTrades > 0 ? profitableTrades / totalTrades : 0;
 
     // Average return per trade
-    const totalPnL = this.closedPositions.reduce((sum, p) => sum + (p.pnl || 0), 0);
+    const totalPnL = this.closedPositions.reduce(
+      (sum, p) => sum + (p.pnl || 0),
+      0
+    );
     const averageReturn = totalTrades > 0 ? totalPnL / totalTrades : 0;
 
     return {
@@ -154,18 +194,17 @@ class PortfolioSimulation {
       winRate,
       totalTrades,
       profitableTrades,
-      averageReturn
+      averageReturn,
     };
   }
 }
 
 export class TradingService {
-
   async getMarketData(symbols: string[]): Promise<MarketData[]> {
     try {
       const alpacaData = await alpacaService.getMarketData(symbols);
 
-      return alpacaData.map(data => ({
+      return alpacaData.map((data) => ({
         symbol: data.symbol,
         price: data.price,
         volume: data.volume,
@@ -174,60 +213,47 @@ export class TradingService {
         high: data.high,
         low: data.low,
         open: data.open,
-        previousClose: data.previousClose
+        previousClose: data.previousClose,
       }));
     } catch (error: any) {
       throw new Error(`Failed to fetch market data: ${error.message}`);
     }
   }
 
-  async executeOrder(orderRequest: OrderRequest): Promise<any> {
+  public async executeOrder(order: OrderRequest): Promise<boolean> {
+    const startTimer = metricsCollector.startPerformanceTimer('orderExecution');
+    this.totalTrades++;
+    
     try {
-      // Calculate quantity based on risk parameters if not provided
-      let quantity = orderRequest.quantity;
-      if (!quantity && orderRequest.strategyName) {
-        quantity = await this.calculatePositionSize(orderRequest.symbol, orderRequest.strategyName);
+      const expectedPrice = order.type === 'market' ? 
+        await this.getCurrentPrice(order.symbol) : 
+        order.price!;
+
+      const result = await alpacaService.submitOrder(order);
+      const endTime = startTimer();
+
+      if (result) {
+        this.successfulTrades++;
+        const executedPrice = result.filled_avg_price;
+        const slippage = Math.abs((executedPrice - expectedPrice) / expectedPrice);
+
+        metricsCollector.updateTradingMetrics({
+          executionTime: endTime,
+          slippage,
+          successRate: (this.successfulTrades / this.totalTrades) * 100
+        });
+
+        return true;
       }
-
-      // Ensure we have a valid quantity
-      if (!quantity || quantity <= 0) {
-        throw new Error('Invalid quantity: must be greater than 0');
-      }
-
-      const alpacaOrder = await alpacaService.placeOrder({
-        symbol: orderRequest.symbol,
-        qty: quantity,
-        side: orderRequest.side,
-        type: orderRequest.type,
-        limit_price: orderRequest.price
-      });
-
-      await storage.createAuditLog({
-        correlationId: orderRequest.correlationId,
-        eventType: 'ORDER_EXECUTED',
-        eventData: { orderRequest, orderId: alpacaOrder.id, calculatedQuantity: quantity },
-        source: 'trading_service',
-        level: 'info'
-      });
-
-      return {
-        orderId: alpacaOrder.id,
-        status: alpacaOrder.status,
-        executedPrice: alpacaOrder.filled_avg_price || undefined,
-        executedQuantity: alpacaOrder.filled_qty || quantity.toString(),
-        executedAt: alpacaOrder.filled_at ? new Date(alpacaOrder.filled_at) : new Date()
-      };
-    } catch (error: any) {
-      await storage.createAuditLog({
-        correlationId: orderRequest.correlationId,
-        eventType: 'ORDER_FAILED',
-        eventData: { orderRequest, error: error.message },
-        source: 'trading_service',
-        level: 'error'
+      return false;
+    } catch (error) {
+      const endTime = startTimer();
+      metricsCollector.updateTradingMetrics({
+        executionTime: endTime,
+        successRate: (this.successfulTrades / this.totalTrades) * 100
       });
       throw error;
     }
-  }
 
   async backtestStrategy(
     symbol: string,
@@ -238,20 +264,27 @@ export class TradingService {
   ): Promise<BacktestResult> {
     try {
       await storage.createAuditLog({
-        eventType: 'BACKTEST_STARTED',
+        eventType: "BACKTEST_STARTED",
         eventData: { symbol, entryRules, exitRules, startDate, endDate },
-        source: 'trading_service',
-        level: 'info'
+        source: "trading_service",
+        level: "info",
       });
 
       // Fetch historical data from Alpaca
-      const historicalData = await alpacaService.getHistoricalBars(symbol, startDate, endDate, '1Day');
+      const historicalData = await alpacaService.getHistoricalBars(
+        symbol,
+        startDate,
+        endDate,
+        "1Day"
+      );
 
       if (!historicalData || historicalData.length === 0) {
         throw new Error(`No historical data available for ${symbol}`);
       }
 
-      console.log(`Running backtest for ${symbol} with ${historicalData.length} data points`);
+      console.log(
+        `Running backtest for ${symbol} with ${historicalData.length} data points`
+      );
 
       // Create portfolio simulation
       const portfolio = new PortfolioSimulation(100000); // Start with $100k
@@ -260,14 +293,16 @@ export class TradingService {
       for (const bar of historicalData) {
         // Evaluate entry/exit conditions (simplified for now)
         const shouldEnter = this.evaluateSimpleEntry(bar);
-        const shouldExit = this.evaluateSimpleExit(bar, portfolio.getPositions());
+        const shouldExit = this.evaluateSimpleExit(
+          bar,
+          portfolio.getPositions()
+        );
 
         if (shouldEnter && portfolio.getCash() > bar.close * 100) {
           // Enter position (buy 100 shares)
           portfolio.enterPosition(symbol, 100, bar.close, bar.timestamp);
         } else if (shouldExit && portfolio.getPositions().length > 0) {
           // Exit position
-          const position = portfolio.getPositions()[0];
           portfolio.exitPosition(symbol, bar.close, bar.timestamp);
         }
       }
@@ -276,31 +311,34 @@ export class TradingService {
       const result = portfolio.calculatePerformanceMetrics();
 
       await storage.createAuditLog({
-        eventType: 'BACKTEST_COMPLETED',
+        eventType: "BACKTEST_COMPLETED",
         eventData: { symbol, result },
-        source: 'trading_service',
-        level: 'info'
+        source: "trading_service",
+        level: "info",
       });
 
       return result;
     } catch (error: any) {
       await storage.createAuditLog({
-        eventType: 'BACKTEST_FAILED',
+        eventType: "BACKTEST_FAILED",
         eventData: { symbol, error: error.message },
-        source: 'trading_service',
-        level: 'error'
+        source: "trading_service",
+        level: "error",
       });
       throw error;
     }
   }
 
-  private evaluateSimpleEntry(bar: any): boolean {
+  private evaluateSimpleEntry(bar: HistoricalBar): boolean {
     // Simple entry rule: RSI < 30 (oversold)
     // This is a placeholder - real implementation would parse entryRules
     return Math.random() > 0.95; // 5% chance to enter (simplified)
   }
 
-  private evaluateSimpleExit(bar: any, positions: any[]): boolean {
+  private evaluateSimpleExit(
+    bar: HistoricalBar,
+    positions: Position[]
+  ): boolean {
     // Simple exit rule: take profit or stop loss
     // This is a placeholder - real implementation would parse exitRules
     return positions.length > 0 && Math.random() > 0.9; // 10% chance to exit if in position
@@ -311,7 +349,11 @@ export class TradingService {
     entryRules: string,
     exitRules: string,
     marketData: MarketData
-  ): Promise<{ shouldEnter: boolean; shouldExit: boolean; confidence: number }> {
+  ): Promise<{
+    shouldEnter: boolean;
+    shouldExit: boolean;
+    confidence: number;
+  }> {
     try {
       // Convert market data to MarketBar format
       const currentBar: MarketBar = {
@@ -320,19 +362,23 @@ export class TradingService {
         high: marketData.high,
         low: marketData.low,
         close: marketData.price,
-        volume: marketData.volume
+        volume: marketData.volume,
       };
 
       // Evaluate rules using the StrategyEvaluator
-      const evaluation = strategyEvaluator.evaluateRules(entryRules, exitRules, currentBar);
+      const evaluation = strategyEvaluator.evaluateRules(
+        entryRules,
+        exitRules,
+        currentBar
+      );
 
       return {
         shouldEnter: evaluation.shouldEnter,
         shouldExit: evaluation.shouldExit,
-        confidence: evaluation.confidence
+        confidence: evaluation.confidence,
       };
     } catch (error: any) {
-      console.error('Error evaluating strategy:', error);
+      console.error("Error evaluating strategy:", error);
       // Fallback to conservative approach
       return { shouldEnter: false, shouldExit: false, confidence: 0 };
     }
@@ -344,24 +390,27 @@ export class TradingService {
     const recentTrades = await storage.getTrades(portfolioId, 10);
 
     if (!portfolio) {
-      throw new Error('Portfolio not found');
+      throw new Error("Portfolio not found");
     }
 
     // Calculate additional metrics
     const totalPositions = openPositions.length;
     const totalValue = parseFloat(portfolio.totalValue);
-    const dayPnL = parseFloat(portfolio.dayPnL || '0');
+    const dayPnL = parseFloat(portfolio.dayPnL || "0");
     const dayPnLPercent = totalValue > 0 ? (dayPnL / totalValue) * 100 : 0;
 
     // Calculate win rate from recent trades
-    const profitableTrades = recentTrades.filter(trade => {
+    const profitableTrades = recentTrades.filter(() => {
       // For now, use a realistic simulation since P&L calculation requires more complex logic
       // In a real implementation, you'd calculate P&L based on entry/exit prices
       const baseWinRate = 0.55; // 55% win rate as a more realistic baseline
       const randomFactor = (Math.random() - 0.5) * 0.2; // ±10% variation
-      return Math.random() < (baseWinRate + randomFactor);
+      return Math.random() < baseWinRate + randomFactor;
     });
-    const winRate = recentTrades.length > 0 ? (profitableTrades.length / recentTrades.length) * 100 : 0;
+    const winRate =
+      recentTrades.length > 0
+        ? (profitableTrades.length / recentTrades.length) * 100
+        : 0;
 
     return {
       portfolioValue: totalValue,
@@ -370,19 +419,26 @@ export class TradingService {
       activePositions: totalPositions,
       winRate,
       cashBalance: parseFloat(portfolio.cashBalance),
-      totalPnL: parseFloat(portfolio.totalPnL || '0')
+      totalPnL: parseFloat(portfolio.totalPnL || "0"),
     };
   }
 
-  async updateSystemHealth(service: string, isHealthy: boolean, metrics: any = {}) {
-    const status = isHealthy ? 'healthy' : 'degraded';
+  async updateSystemHealth(
+    service: string,
+    isHealthy: boolean,
+    metrics: SystemHealthMetrics = {}
+  ) {
+    const status = isHealthy ? "healthy" : "degraded";
     return await storage.updateSystemHealth(service, status, metrics);
   }
 
   /**
-   * Calculate position size based on risk parameters from strategy
+   * Calculate position size based on risk parameters using Alpaca account data
    */
-  async calculatePositionSize(symbol: string, strategyName: string): Promise<number> {
+  async calculatePositionSize(
+    symbol: string,
+    strategyName?: string
+  ): Promise<number> {
     try {
       // Get current market data for the symbol
       const marketData = await this.getMarketData([symbol]);
@@ -392,53 +448,69 @@ export class TradingService {
 
       const currentPrice = marketData[0].price;
 
-      // Get strategy from database
-      const strategies = await storage.getStrategies();
-      const strategy = strategies.find(s => s.name === strategyName);
-
-      if (!strategy) {
-        console.warn(`Strategy ${strategyName} not found, using default position size`);
-        return 100; // Default fallback
-      }
-
-      // Get risk parameters from strategy
-      const riskParams = strategy.riskParameters as any;
-      if (!riskParams) {
-        console.warn(`No risk parameters found for strategy ${strategyName}, using default`);
-        return 100; // Default fallback
-      }
-
-      // Get account information for available cash
+      // Get account information for available cash and portfolio value
       const account = await alpacaService.getAccount();
       const availableCash = account.cash;
+      const portfolioValue = account.portfolio_value;
+
+      // Use default risk parameters based on strategy name or conservative defaults
+      let riskParams: RiskParameters;
+
+      if (strategyName) {
+        // Define risk parameters based on strategy name
+        switch (strategyName.toLowerCase()) {
+          case "conservative":
+            riskParams = {
+              riskPerTrade: 1, // 1% of portfolio per trade
+              stopLossPercent: 2, // 2% stop loss
+            };
+            break;
+          case "moderate":
+            riskParams = {
+              riskPerTrade: 2, // 2% of portfolio per trade
+              stopLossPercent: 3, // 3% stop loss
+            };
+            break;
+          case "aggressive":
+            riskParams = {
+              riskPerTrade: 3, // 3% of portfolio per trade
+              stopLossPercent: 5, // 5% stop loss
+            };
+            break;
+          default:
+            // Default conservative parameters
+            riskParams = {
+              riskPerTrade: 1, // 1% of portfolio per trade
+              stopLossPercent: 2, // 2% stop loss
+            };
+        }
+      } else {
+        // Default conservative parameters
+        riskParams = {
+          riskPerTrade: 1, // 1% of portfolio per trade
+          stopLossPercent: 2, // 2% stop loss
+        };
+      }
 
       // Calculate position size based on risk parameters
       let positionSize = 100; // Default
 
-      if (riskParams.maxPositionSize) {
-        // Use max position size if specified
-        const maxPositionValue = typeof riskParams.maxPositionSize === 'string'
-          ? parseFloat(riskParams.maxPositionSize)
-          : riskParams.maxPositionSize;
-        positionSize = Math.floor(maxPositionValue / currentPrice);
-      } else if (riskParams.riskPerTrade && riskParams.stopLossPercent) {
+      if (riskParams.riskPerTrade && riskParams.stopLossPercent) {
         // Calculate based on risk per trade and stop loss
-        const riskPerTrade = typeof riskParams.riskPerTrade === 'string'
-          ? parseFloat(riskParams.riskPerTrade)
-          : riskParams.riskPerTrade;
-        const stopLossPercent = typeof riskParams.stopLossPercent === 'string'
-          ? parseFloat(riskParams.stopLossPercent)
-          : riskParams.stopLossPercent;
-        const riskAmount = availableCash * (riskPerTrade / 100);
+        const riskPerTrade =
+          typeof riskParams.riskPerTrade === "string"
+            ? parseFloat(riskParams.riskPerTrade)
+            : riskParams.riskPerTrade;
+        const stopLossPercent =
+          typeof riskParams.stopLossPercent === "string"
+            ? parseFloat(riskParams.stopLossPercent)
+            : riskParams.stopLossPercent;
+        const riskAmount = portfolioValue * (riskPerTrade / 100);
         const stopLossAmount = currentPrice * (stopLossPercent / 100);
         positionSize = Math.floor(riskAmount / stopLossAmount);
-      } else if (riskParams.portfolioPercentage) {
-        // Use percentage of portfolio
-        const portfolioValue = account.portfolio_value;
-        const portfolioPercentage = typeof riskParams.portfolioPercentage === 'string'
-          ? parseFloat(riskParams.portfolioPercentage)
-          : riskParams.portfolioPercentage;
-        const positionValue = portfolioValue * (portfolioPercentage / 100);
+      } else {
+        // Fallback: use 1% of portfolio value
+        const positionValue = portfolioValue * 0.01; // 1% of portfolio
         positionSize = Math.floor(positionValue / currentPrice);
       }
 
@@ -449,7 +521,11 @@ export class TradingService {
       const maxAffordable = Math.floor(availableCash / currentPrice);
       positionSize = Math.min(positionSize, maxAffordable);
 
-      console.log(`Calculated position size for ${symbol}: ${positionSize} shares at $${currentPrice}`);
+      console.log(
+        `Calculated position size for ${symbol}: ${positionSize} shares at $${currentPrice} (${
+          strategyName || "default"
+        } strategy)`
+      );
 
       return positionSize;
     } catch (error: any) {

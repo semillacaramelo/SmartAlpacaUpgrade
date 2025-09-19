@@ -1,7 +1,9 @@
+import "dotenv/config";
 import { Worker, Job } from 'bullmq';
 import { tradingQueue, QUEUE_NAMES, QueueManager, redisClient } from './lib/queue';
 import { storage } from './storage';
 import { tradingService } from './services/trading';
+import { alpacaService } from './services/alpaca';
 import { analyzeMarket, selectAssets, generateTradingStrategy } from './services/gemini';
 import { wsManager } from './services/websocket';
 import { v4 as uuidv4 } from 'uuid';
@@ -32,16 +34,28 @@ let worker: Worker;
 // Job processors for each stage of the AI pipeline
 const jobProcessors = {
   [QUEUE_NAMES.MARKET_SCAN]: async (job: Job) => {
-    const { correlationId, symbols = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA', 'META', 'AMZN'] } = job.data;
+    const { correlationId, symbols } = job.data;
 
     try {
-      console.log(`[${correlationId}] Starting market scan for symbols:`, symbols);
+      console.log(`[${correlationId}] Worker received MARKET_SCAN job`);
 
       // Broadcast pipeline start
       wsManager?.broadcastAIPipelineUpdate('market_scan', 'started', {}, correlationId);
 
+      // Get dynamic list of tradable assets if no symbols provided
+      let tradableSymbols = symbols;
+      if (!tradableSymbols || tradableSymbols.length === 0) {
+        console.log(`[${correlationId}] Fetching dynamic list of tradable assets`);
+        tradableSymbols = await alpacaService.getTradableAssets();
+
+        // Limit to top 100 assets for performance
+        tradableSymbols = tradableSymbols.slice(0, 100);
+      }
+
+      console.log(`[${correlationId}] Starting market scan for ${tradableSymbols.length} symbols`);
+
       // Get market data
-      const marketData = await tradingService.getMarketData(symbols);
+      const marketData = await tradingService.getMarketData(tradableSymbols);
 
       // Analyze market with AI
       const marketAnalysis = await analyzeMarket(marketData);
@@ -50,7 +64,7 @@ const jobProcessors = {
       await storage.createAiDecision({
         correlationId,
         stage: 'market_scan',
-        input: { symbols, marketData },
+        input: { symbols: tradableSymbols, marketData },
         output: marketAnalysis,
         confidence: marketAnalysis.confidence?.toString() || '0.8',
         status: 'success'
@@ -94,8 +108,12 @@ const jobProcessors = {
 
       wsManager?.broadcastAIPipelineUpdate('asset_selection', 'started', {}, correlationId);
 
-      const availableAssets = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA', 'META', 'AMZN'];
-      const assetSelections = await selectAssets(marketAnalysis, availableAssets);
+      // Get dynamic list of tradable assets
+      const availableAssets = await alpacaService.getTradableAssets();
+      // Limit to top 100 for performance
+      const limitedAssets = availableAssets.slice(0, 100);
+
+      const assetSelections = await selectAssets(marketAnalysis, limitedAssets);
 
       // Select top 3 assets
       const selectedAssets = assetSelections
@@ -105,7 +123,7 @@ const jobProcessors = {
       await storage.createAiDecision({
         correlationId,
         stage: 'asset_selection',
-        input: { marketAnalysis, availableAssets },
+        input: { marketAnalysis, availableAssets: limitedAssets },
         output: selectedAssets,
         status: 'success'
       });
@@ -477,7 +495,7 @@ export async function getWorkerHealth() {
 }
 
 // Main entry point when run as worker process
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   console.log('Starting Smart Alpaca Worker Process...');
 
   // Handle graceful shutdown

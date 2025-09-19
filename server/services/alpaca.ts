@@ -1,4 +1,4 @@
-import AlpacaClient from '@alpacahq/alpaca-trade-api';
+import AlpacaClient from "@alpacahq/alpaca-trade-api";
 
 export interface AlpacaMarketData {
   symbol: string;
@@ -27,8 +27,8 @@ export interface AlpacaOrder {
   id: string;
   symbol: string;
   qty: number;
-  side: 'buy' | 'sell';
-  type: 'market' | 'limit';
+  side: "buy" | "sell";
+  type: "market" | "limit";
   time_in_force: string;
   status: string;
   filled_at?: string;
@@ -46,31 +46,77 @@ export interface AlpacaAccount {
   daytrade_count: number;
 }
 
+export interface AlpacaBar {
+  t: string; // Timestamp
+  o: number; // Open price
+  h: number; // High price
+  l: number; // Low price
+  c: number; // Close price
+  v: number; // Volume
+}
+
 export class AlpacaService {
   private client: AlpacaClient;
 
-  constructor() {
-    const apiKey = process.env.ALPACA_API_KEY;
-    const secretKey = process.env.ALPACA_SECRET_KEY;
-    const baseUrl = process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets';
+  constructor(config?: { keyId: string; secretKey: string; baseUrl?: string }) {
+    const keyId = config?.keyId || process.env.ALPACA_API_KEY;
+    const secretKey = config?.secretKey || process.env.ALPACA_SECRET_KEY;
+    const baseUrl =
+      config?.baseUrl ||
+      process.env.ALPACA_BASE_URL ||
+      "https://paper-api.alpaca.markets";
 
-    if (!apiKey || !secretKey) {
-      throw new Error('Alpaca API credentials not configured. Please set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables.');
+    if (!keyId || !secretKey) {
+      throw new Error("Alpaca API credentials not configured.");
     }
 
     this.client = new AlpacaClient({
-      keyId: apiKey,
-      secretKey: secretKey,
-      paper: baseUrl.includes('paper'),
-      baseUrl: baseUrl
+      keyId,
+      secretKey,
+      paper: baseUrl.includes("paper"),
+      baseUrl,
     });
+  }
+
+  async getBars(
+    symbol: string,
+    timeframe: string,
+    limit: number
+  ): Promise<AlpacaBar[]> {
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - limit);
+
+      const barsGenerator = this.client.getBarsV2(symbol, {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+        timeframe: timeframe,
+        limit: limit,
+      });
+
+      const bars: AlpacaBar[] = [];
+      for await (const bar of barsGenerator) {
+        bars.push({
+          t: bar.Timestamp,
+          o: bar.OpenPrice,
+          h: bar.HighPrice,
+          l: bar.LowPrice,
+          c: bar.ClosePrice,
+          v: bar.Volume,
+        });
+      }
+      return bars;
+    } catch (error) {
+      throw new Error(`Failed to fetch bars for ${symbol}: ${error}`);
+    }
   }
 
   async getMarketData(symbols: string[]): Promise<AlpacaMarketData[]> {
     try {
       const bars = await this.client.getLatestBars(symbols);
 
-      return symbols.map(symbol => {
+      return symbols.map((symbol) => {
         const bar = bars.get(symbol);
         if (!bar) {
           throw new Error(`No market data available for ${symbol}`);
@@ -89,21 +135,30 @@ export class AlpacaService {
           low: bar.LowPrice,
           open: bar.OpenPrice,
           previousClose: bar.OpenPrice, // This should be previous day's close
-          timestamp: new Date(bar.Timestamp)
+          timestamp: new Date(bar.Timestamp),
         };
       });
     } catch (error) {
-      throw new Error(`Failed to fetch market data: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to fetch market data: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 
-  async getHistoricalBars(symbol: string, start: Date, end: Date, timeframe: string = '1Day'): Promise<any[]> {
+  async getHistoricalBars(
+    symbol: string,
+    start: Date,
+    end: Date,
+    timeframe: string = "1Day"
+  ): Promise<any[]> {
     try {
       const bars = await this.client.getBarsV2(symbol, {
         start: start.toISOString(),
         end: end.toISOString(),
         timeframe: timeframe,
-        adjustment: 'raw'
+        adjustment: "raw",
       });
 
       const result = [];
@@ -114,21 +169,25 @@ export class AlpacaService {
           high: bar.HighPrice,
           low: bar.LowPrice,
           close: bar.ClosePrice,
-          volume: bar.Volume
+          volume: bar.Volume,
         });
       }
 
       return result;
     } catch (error) {
-      throw new Error(`Failed to fetch historical bars for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to fetch historical bars for ${symbol}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 
   async placeOrder(orderRequest: {
     symbol: string;
     qty: number;
-    side: 'buy' | 'sell';
-    type: 'market' | 'limit';
+    side: "buy" | "sell";
+    type: "market" | "limit";
     time_in_force?: string;
     limit_price?: number;
   }): Promise<AlpacaOrder> {
@@ -138,8 +197,10 @@ export class AlpacaService {
         qty: orderRequest.qty,
         side: orderRequest.side,
         type: orderRequest.type,
-        time_in_force: orderRequest.time_in_force || 'gtc',
-        ...(orderRequest.limit_price && { limit_price: orderRequest.limit_price })
+        time_in_force: orderRequest.time_in_force || "gtc",
+        ...(orderRequest.limit_price && {
+          limit_price: orderRequest.limit_price,
+        }),
       });
 
       return {
@@ -152,10 +213,16 @@ export class AlpacaService {
         status: order.status,
         filled_at: order.filled_at,
         filled_qty: order.filled_qty ? parseFloat(order.filled_qty) : undefined,
-        filled_avg_price: order.filled_avg_price ? parseFloat(order.filled_avg_price) : undefined
+        filled_avg_price: order.filled_avg_price
+          ? parseFloat(order.filled_avg_price)
+          : undefined,
       };
     } catch (error) {
-      throw new Error(`Failed to place order: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to place order: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 
@@ -170,10 +237,14 @@ export class AlpacaService {
         buying_power: parseFloat(account.buying_power),
         cash: parseFloat(account.cash),
         portfolio_value: parseFloat(account.portfolio_value),
-        daytrade_count: parseInt(account.daytrade_count)
+        daytrade_count: parseInt(account.daytrade_count),
       };
     } catch (error) {
-      throw new Error(`Failed to get account info: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get account info: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 
@@ -188,10 +259,14 @@ export class AlpacaService {
         current_price: parseFloat(pos.current_price),
         market_value: parseFloat(pos.market_value),
         unrealized_pl: parseFloat(pos.unrealized_pl),
-        unrealized_plpc: parseFloat(pos.unrealized_plpc)
+        unrealized_plpc: parseFloat(pos.unrealized_plpc),
       }));
     } catch (error) {
-      throw new Error(`Failed to get positions: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get positions: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 
@@ -206,13 +281,17 @@ export class AlpacaService {
         current_price: parseFloat(position.current_price),
         market_value: parseFloat(position.market_value),
         unrealized_pl: parseFloat(position.unrealized_pl),
-        unrealized_plpc: parseFloat(position.unrealized_plpc)
+        unrealized_plpc: parseFloat(position.unrealized_plpc),
       };
     } catch (error) {
       if ((error as any).status === 404) {
         return null; // Position doesn't exist
       }
-      throw new Error(`Failed to get position for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get position for ${symbol}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 
@@ -227,10 +306,14 @@ export class AlpacaService {
         side: order.side,
         type: order.type,
         time_in_force: order.time_in_force,
-        status: order.status
+        status: order.status,
       };
     } catch (error) {
-      throw new Error(`Failed to close position for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to close position for ${symbol}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 
@@ -248,10 +331,38 @@ export class AlpacaService {
         status: order.status,
         filled_at: order.filled_at,
         filled_qty: order.filled_qty ? parseFloat(order.filled_qty) : undefined,
-        filled_avg_price: order.filled_avg_price ? parseFloat(order.filled_avg_price) : undefined
+        filled_avg_price: order.filled_avg_price
+          ? parseFloat(order.filled_avg_price)
+          : undefined,
       }));
     } catch (error: any) {
-      throw new Error(`Failed to get orders: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get orders: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  async getTradableAssets(): Promise<string[]> {
+    try {
+      const assets = await this.client.getAssets({
+        status: "active",
+        asset_class: "us_equity",
+      });
+
+      // Filter for tradable assets and return their symbols
+      const tradableAssets = assets
+        .filter((asset: any) => asset.tradable === true)
+        .map((asset: any) => asset.symbol);
+
+      return tradableAssets;
+    } catch (error: any) {
+      throw new Error(
+        `Failed to get tradable assets: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 }
