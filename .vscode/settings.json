@@ -1,11 +1,18 @@
 {
+  // Project-specific settings only
+  // Configuraciones específicas del proyecto mantenidas
   "typescript.preferences.importModuleSpecifier": "relative",
   "typescript.suggest.autoImports": true,
   "editor.formatOnSave": true,
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.defaultFormatter": null,
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit"
   },
+  "explorer.confirmDelete": false,
+  "explorer.confirmDragAndDrop": false,
+  "git.confirmSync": false,
+  "git.enableSmartCommit": true,
+  "git.autofetch": true,
   "emmet.includeLanguages": {
     "typescript": "html",
     "typescriptreact": "html"

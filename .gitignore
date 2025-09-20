@@ -16,3 +16,61 @@ vite.config.ts.*
 *.env
 *.env.*
 !*.env.example
+
+# IDE - VS Code
+# Keep recommended extensions and project tasks, but exclude personal settings
+.vscode/*
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+# Exclude personal settings but keep project settings
+# .vscode/settings.json
+*.code-workspace
+.vscode-test
+.history/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Build artifacts
+build/
+out/
+.eslintcache
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Cache and db files
+.npm
+.eslintcache
+.stylelintcache
+.cache/
+dump.rdb
+*.db
+*.sqlite
+*.sqlite3
+
+# Debug files
+client/debug.html
+client/test.html
+DEBUG_INSTRUCTIONS.md
+
+# Local scripts that shouldn't be shared
+scripts/*-old.ps1
+scripts/add-postgresql*.ps1
+scripts/setup-postgresql*.ps1
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
