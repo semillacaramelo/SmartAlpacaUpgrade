@@ -9,6 +9,26 @@ import { initializeWebSocketManager } from "./services/websocket";
 import { portfolioService } from "./services/portfolio";
 import { insertUserSchema } from "@shared/schema";
 import { z } from "zod";
+import {
+  loginHandler,
+  registerHandler,
+  profileHandler,
+  authenticate,
+  authenticateDemo
+} from "./middleware/auth";
+import { authRateLimit, tradingRateLimit } from "./middleware/security";
+import {
+  executeTradeSchema,
+  backtestSchema,
+  apiSettingsSchema,
+  portfolioQuerySchema,
+  positionQuerySchema,
+  validateSchema,
+  validateQuery
+} from "./schemas/validation";
+import monitoringRoutes from "./routes/monitoring";
+import promptsRoutes from "./routes/prompts";
+import { createDefaultHealthChecks } from "./services/health-monitor";
 
 // Redis Pub/Sub channel for system events
 const SYSTEM_EVENTS_CHANNEL = "system-events";
@@ -97,6 +117,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Authentication routes (no auth required)
+  app.post("/api/auth/login", authRateLimit, loginHandler);
+  app.post("/api/auth/register", authRateLimit, registerHandler);
+  app.get("/api/auth/profile", authenticate, profileHandler);
+
+  // Initialize health monitoring
+  createDefaultHealthChecks();
+
+  // Monitoring and resilience routes
+  app.use("/api/monitoring", monitoringRoutes);
+
+  // AI Prompts management routes
+  app.use("/api/prompts", promptsRoutes);
+
   // System metrics
   app.get("/api/system/metrics", async (req, res) => {
     try {
@@ -128,7 +162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bot control
-  app.post("/api/bot/start", async (req, res) => {
+  app.post("/api/bot/start", authenticateDemo, async (req, res) => {
     try {
       console.log("Bot start request received");
 
@@ -171,7 +205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/bot/stop", async (req, res) => {
+  app.post("/api/bot/stop", authenticateDemo, async (req, res) => {
     try {
       // Set bot state to stopped in Redis
       await BotStateManager.setBotState("stopped");
@@ -216,25 +250,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Portfolio endpoints
-  app.get("/api/portfolio/history", async (req, res) => {
+  app.get("/api/portfolio/history", validateQuery(portfolioQuerySchema), async (req, res) => {
     try {
-      const { timeframe = "1d" } = req.query;
+      const { period } = req.validatedQuery;
       const account = await alpacaService.getAccount();
 
-      // Calculate date range based on timeframe
+      // Calculate date range based on period
       const endDate = new Date();
       const startDate = new Date();
-      switch (timeframe) {
-        case "1w":
+      switch (period) {
+        case "1W":
           startDate.setDate(startDate.getDate() - 7);
           break;
-        case "1m":
+        case "1M":
           startDate.setMonth(startDate.getMonth() - 1);
           break;
-        case "1y":
+        case "3M":
+          startDate.setMonth(startDate.getMonth() - 3);
+          break;
+        case "1Y":
           startDate.setFullYear(startDate.getFullYear() - 1);
           break;
-        default: // 1d
+        case "ALL":
+          startDate.setFullYear(startDate.getFullYear() - 5);
+          break;
+        default: // 1D
           startDate.setDate(startDate.getDate() - 1);
       }
 
@@ -243,13 +283,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "SPY", // Use a proxy for overall portfolio performance
         startDate,
         endDate,
-        timeframe === "1d" ? "1Min" : "1Day"
+        period === "1D" ? "1Min" : "1Day"
       );
 
       // Transform data into chart format
       const data = equityHistory.map((bar) => ({
         time:
-          timeframe === "1d"
+          period === "1D"
             ? new Date(bar.timestamp).toLocaleTimeString()
             : new Date(bar.timestamp).toLocaleDateString(),
         value: bar.close,
@@ -271,9 +311,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Positions endpoints
-  app.get("/api/positions/open", async (req, res) => {
+  app.get("/api/positions/open", validateQuery(positionQuerySchema), async (req, res) => {
     try {
-      const positions = await alpacaService.getPositions();
+      const { status, symbol, limit, offset } = req.validatedQuery;
+
+      let positions = await alpacaService.getPositions();
+
+      // Filter by symbol if provided
+      if (symbol) {
+        positions = positions.filter(pos => pos.symbol === symbol);
+      }
+
+      // Apply pagination
+      positions = positions.slice(offset, offset + limit);
 
       res.json(
         positions.map((pos) => ({
@@ -340,13 +390,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Backtest endpoint
-  app.post("/api/backtest/run", async (req, res) => {
+  app.post("/api/backtest/run", validateSchema(backtestSchema), async (req, res) => {
     try {
-      const { symbol, entryRules, exitRules, startDate, endDate } = req.body;
-
-      if (!symbol || !entryRules || !exitRules) {
-        return res.status(400).json({ error: "Missing required parameters" });
-      }
+      const { symbol, entryRules, exitRules, startDate, endDate } = req.validatedBody;
 
       const result = await tradingService.backtestStrategy(
         symbol,
@@ -363,9 +409,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Trading endpoint
-  app.post("/api/trade/execute", async (req, res) => {
+  app.post("/api/trade/execute", authenticateDemo, tradingRateLimit, validateSchema(executeTradeSchema), async (req, res) => {
     try {
-      const orderRequest = req.body;
+      const orderRequest = req.validatedBody;
       const result = await tradingService.executeOrder(orderRequest);
       res.json(result);
     } catch (error: any) {
@@ -385,42 +431,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Save API settings
-  app.post("/api/settings/api", async (req, res) => {
-    // Extract request data for use in both try and catch blocks
-    const requestData = {
-      userId: req.body.userId,
-      alpacaApiKey: req.body.alpacaApiKey || "",
-      alpacaSecretKey: req.body.alpacaSecretKey || "",
-      geminiApiKey: req.body.geminiApiKey || "",
-      enablePaperTrading:
-        req.body.enablePaperTrading !== undefined
-          ? req.body.enablePaperTrading
-          : true,
-      enableRealTrading:
-        req.body.enableRealTrading !== undefined
-          ? req.body.enableRealTrading
-          : false,
-    };
-
+  app.post("/api/settings/api", validateSchema(apiSettingsSchema), async (req, res) => {
     try {
-      console.log("Received settings save request:", req.body); // Debug log
+      console.log("Received settings save request:", req.validatedBody); // Debug log
 
       const {
-        userId,
         alpacaApiKey,
-        alpacaSecretKey,
+        alpacaSecret,
         geminiApiKey,
-        enablePaperTrading,
-        enableRealTrading,
-      } = requestData;
+        tradingMode,
+        autoTrading,
+        maxPositionSize,
+        stopLoss,
+        takeProfit
+      } = req.validatedBody;
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "User ID is required",
-        });
-      }
-
+      // Use demo user for now
+      const userId = "demo-user";
       console.log("Looking up user by username:", userId); // Debug log
 
       // First find or create the user
@@ -440,12 +467,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Updating user settings for user ID:", user.id); // Debug log
       const updatedUser = await storage.updateUserSettings(user.id, {
         alpacaApiKey: alpacaApiKey || "",
-        alpacaSecretKey: alpacaSecretKey || "",
+        alpacaSecretKey: alpacaSecret || "",
         geminiApiKey: geminiApiKey || "",
-        enablePaperTrading:
-          enablePaperTrading !== undefined ? enablePaperTrading : true,
-        enableRealTrading:
-          enableRealTrading !== undefined ? enableRealTrading : false,
+        enablePaperTrading: tradingMode === 'paper',
+        enableRealTrading: autoTrading || false,
       });
 
       console.log("User settings saved successfully:", updatedUser); // Debug log
@@ -484,17 +509,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         errorMessage.includes("connectivity")
       ) {
         console.warn("Database not available, but request structure is valid");
+        const validatedData = req.validatedBody;
         res.json({
           success: true,
           message:
             "Settings validated successfully. Database connectivity issue - settings will be saved when connection is restored.",
           database_error: errorMessage,
           settings: {
-            alpacaApiKey: requestData.alpacaApiKey ? "***masked***" : "",
-            alpacaSecretKey: requestData.alpacaSecretKey ? "***masked***" : "",
-            geminiApiKey: requestData.geminiApiKey ? "***masked***" : "",
-            enablePaperTrading: requestData.enablePaperTrading,
-            enableRealTrading: requestData.enableRealTrading,
+            alpacaApiKey: validatedData.alpacaApiKey ? "***masked***" : "",
+            alpacaSecretKey: validatedData.alpacaSecretKey ? "***masked***" : "",
+            geminiApiKey: validatedData.geminiApiKey ? "***masked***" : "",
+            enablePaperTrading: validatedData.enablePaperTrading,
+            enableRealTrading: validatedData.enableRealTrading,
           },
         });
       } else {
@@ -509,25 +535,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Load API settings endpoint
   app.get("/api/settings/api", async (req, res) => {
     try {
-      const userId = req.query.userId as string;
-      if (!userId) {
-        return res.status(400).json({ error: "User ID is required" });
-      }
+      // For demo purposes, use a fixed demo user
+      const userId = "demo-user";
 
       const user = await storage.getUserByUsername(userId);
       if (!user) {
-        return res.status(404).json({ error: "User not found" });
+        // Return empty settings if user doesn't exist yet
+        return res.json({
+          alpacaApiKey: "",
+          alpacaSecret: "",
+          geminiApiKey: "",
+          tradingMode: "paper",
+          autoTrading: false,
+          maxPositionSize: 10,
+          stopLoss: 5,
+          takeProfit: 15
+        });
       }
 
+      // Mask sensitive data for security
+      const maskKey = (key: string | null) => {
+        if (!key || key.length < 8) return "";
+        return "*".repeat(key.length - 4) + key.slice(-4);
+      };
+
       res.json({
-        alpacaApiKey: user.alpacaApiKey,
-        alpacaSecretKey: user.alpacaSecretKey,
-        geminiApiKey: user.geminiApiKey,
-        enablePaperTrading: user.enablePaperTrading,
-        enableRealTrading: user.enableRealTrading,
+        alpacaApiKey: maskKey(user.alpacaApiKey),
+        alpacaSecret: maskKey(user.alpacaSecretKey),
+        geminiApiKey: maskKey(user.geminiApiKey),
+        tradingMode: user.enablePaperTrading ? "paper" : "live",
+        autoTrading: user.enableRealTrading || false,
+        maxPositionSize: 10, // Add these to user schema later
+        stopLoss: 5,
+        takeProfit: 15
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("Error loading API settings:", error);
+      res.status(500).json({ error: "Failed to load settings" });
     }
   });
 

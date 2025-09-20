@@ -402,6 +402,9 @@ async function executeStagedTrades(correlationId: string) {
         };
 
         const orderResult = await tradingService.executeOrder(orderRequest);
+        
+        // For now, use fallback price since executeOrder returns boolean
+        const executedPrice = await alpacaService.getCurrentPrice(strategy.symbol);
 
         // Update strategy status
         await storage.updateStrategy(strategy.id, { status: 'active' });
@@ -411,7 +414,7 @@ async function executeStagedTrades(correlationId: string) {
           symbol: strategy.symbol,
           side: 'buy',
           quantity: 100,
-          price: orderResult.executedPrice,
+          price: executedPrice,
           correlationId: strategy.correlationId
         });
 

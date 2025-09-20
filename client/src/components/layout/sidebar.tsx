@@ -7,7 +7,7 @@ const navigation = [
   { name: "Strategies", href: "/strategies", icon: "fas fa-cogs", current: false },
   { name: "Backtest", href: "/backtest", icon: "fas fa-history", current: false },
   { name: "Audit Log", href: "/audit", icon: "fas fa-list-alt", current: false },
-  { name: "Risk Management", href: "/risk", icon: "fas fa-shield-alt", current: false },
+  { name: "Monitoring", href: "/monitoring", icon: "fas fa-monitor-waveform", current: false },
   { name: "Settings", href: "/settings", icon: "fas fa-cog", current: false },
 ];
 
@@ -27,13 +27,13 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-      
+
       <nav className="flex-1 p-4 space-y-2">
         {navigation.map((item) => {
           const isActive = location === item.href || (item.href === "/" && location === "/dashboard");
           return (
             <Link key={item.name} href={item.href}>
-              <a 
+              <a
                 className={cn(
                   "flex items-center space-x-3 px-3 py-2 rounded-md transition-colors",
                   isActive
@@ -49,7 +49,7 @@ export default function Sidebar() {
           );
         })}
       </nav>
-      
+
       <div className="p-4 border-t border-border">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">

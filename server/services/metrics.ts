@@ -87,4 +87,5 @@ class MetricsCollector {
 }
 
 export const metricsCollector = MetricsCollector.getInstance();
+export const metrics = metricsCollector; // Export as metrics for compatibility
 export type { SystemMetrics, ApplicationMetrics, TradingMetrics };

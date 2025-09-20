@@ -51,6 +51,7 @@ export const positions = pgTable("positions", {
   symbol: text("symbol").notNull(),
   quantity: integer("quantity").notNull(),
   entryPrice: decimal("entry_price", { precision: 10, scale: 4 }).notNull(),
+  averageEntryPrice: decimal("average_entry_price", { precision: 10, scale: 4 }), // Add for compatibility
   currentPrice: decimal("current_price", { precision: 10, scale: 4 }),
   marketValue: decimal("market_value", { precision: 15, scale: 2 }),
   unrealizedPnL: decimal("unrealized_pnl", { precision: 15, scale: 2 }),
@@ -151,6 +152,41 @@ export const systemHealth = pgTable("system_health", {
   lastCheck: timestamp("last_check").defaultNow(),
 });
 
+export const tradeExecutions = pgTable("trade_executions", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  symbol: text("symbol").notNull(),
+  side: text("side").notNull(), // 'buy' | 'sell'
+  quantity: integer("quantity").notNull(),
+  price: decimal("price", { precision: 15, scale: 6 }).notNull(),
+  executedAt: timestamp("executed_at").defaultNow(),
+  orderId: text("order_id").notNull(),
+  correlationId: text("correlation_id"),
+  strategyName: text("strategy_name"),
+  aiReasoning: text("ai_reasoning"),
+  timestamp: timestamp("timestamp").defaultNow(),
+  executionId: text("execution_id"),
+  commission: decimal("commission", { precision: 15, scale: 6 }),
+});
+
+export const riskMetrics = pgTable("risk_metrics", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  symbol: text("symbol").notNull(),
+  sharpeRatio: decimal("sharpe_ratio", { precision: 15, scale: 6 }),
+  maxDrawdown: decimal("max_drawdown", { precision: 15, scale: 6 }),
+  volatility: decimal("volatility", { precision: 15, scale: 6 }),
+  beta: decimal("beta", { precision: 15, scale: 6 }),
+  alpha: decimal("alpha", { precision: 15, scale: 6 }),
+  winRate: decimal("win_rate", { precision: 15, scale: 6 }),
+  profitFactor: decimal("profit_factor", { precision: 15, scale: 6 }),
+  averageReturn: decimal("average_return", { precision: 15, scale: 6 }),
+  totalReturn: decimal("total_return", { precision: 15, scale: 6 }),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   portfolios: many(portfolios),
@@ -242,6 +278,10 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type SystemHealth = typeof systemHealth.$inferSelect;
 export type InsertSystemHealth = z.infer<typeof insertSystemHealthSchema>;
+export type TradeExecution = typeof tradeExecutions.$inferSelect;
+export type InsertTradeExecution = typeof tradeExecutions.$inferInsert;
+export type RiskMetric = typeof riskMetrics.$inferSelect;
+export type InsertRiskMetric = typeof riskMetrics.$inferInsert;
 
 // API Response Types
 export interface PortfolioStatus {

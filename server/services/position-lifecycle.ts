@@ -1,12 +1,12 @@
 import { db } from "../db";
 import { eq } from "drizzle-orm";
-import { positions } from "../schema";
-import { PositionUpdate } from "../../shared/interfaces";
+import { positions } from "@shared/schema";
+import { PositionData } from "../../shared/interfaces";
 import { logger } from "./logger";
 import { metrics } from "./metrics";
 
 export class PositionLifecycleManager {
-  async updatePosition(update: PositionUpdate): Promise<void> {
+  async updatePosition(update: PositionData): Promise<void> {
     try {
       const existing = await db
         .select()
@@ -19,26 +19,28 @@ export class PositionLifecycleManager {
           .update(positions)
           .set({
             quantity: update.quantity,
-            averageEntryPrice: update.averageEntryPrice,
-            currentPrice: update.currentPrice,
-            unrealizedPL: update.unrealizedPL,
-            realizedPL: update.realizedPL,
-            holdingPeriod: update.holdingPeriod,
-            lastUpdated: new Date(),
+            entryPrice: update.averageEntryPrice.toString(),
+            currentPrice: update.currentPrice.toString(),
+            unrealizedPnL: update.unrealizedPnL.toString(),
+            realizedPnL: update.realizedPnL.toString(),
           })
           .where(eq(positions.symbol, update.symbol));
       } else {
         await db.insert(positions).values({
-          ...update,
-          lastUpdated: new Date(),
+          symbol: update.symbol,
+          quantity: update.quantity,
+          entryPrice: update.averageEntryPrice.toString(),
+          currentPrice: update.currentPrice.toString(),
+          unrealizedPnL: update.unrealizedPnL.toString(),
+          realizedPnL: update.realizedPnL.toString(),
         });
       }
 
-      metrics.increment("position.update.success");
-      logger.info("Position updated successfully", { symbol: update.symbol });
+      metrics.updateApplicationMetrics({ requestRate: metrics.getMetrics().application.requestRate + 1 });
+      logger.log({ operation: "position.update.success", metadata: { symbol: update.symbol } });
     } catch (error) {
-      metrics.increment("position.update.error");
-      logger.error("Failed to update position", { error, update });
+      metrics.updateApplicationMetrics({ errorRate: metrics.getMetrics().application.errorRate + 1 });
+      logger.error(error instanceof Error ? error : new Error(String(error)), { operation: "position.update.error", metadata: { update } });
       throw error;
     }
   }
@@ -55,13 +57,19 @@ export class PositionLifecycleManager {
     }
 
     const pos = position[0];
+    const currentPrice = pos.currentPrice ? parseFloat(pos.currentPrice) : 0;
+    const entryPrice = parseFloat(pos.entryPrice);
+    const unrealizedPnL = pos.unrealizedPnL ? parseFloat(pos.unrealizedPnL) : 0;
+    const realizedPnL = pos.realizedPnL ? parseFloat(pos.realizedPnL) : 0;
+
     return {
-      totalValue: pos.quantity * pos.currentPrice,
-      profitLoss: pos.unrealizedPL + pos.realizedPL,
+      totalValue: pos.quantity * currentPrice,
+      profitLoss: unrealizedPnL + realizedPnL,
       returnOnInvestment:
-        ((pos.currentPrice - pos.averageEntryPrice) / pos.averageEntryPrice) *
-        100,
-      holdingPeriodDays: pos.holdingPeriod / (24 * 60 * 60 * 1000), // Convert from milliseconds to days
+        entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0,
+      holdingPeriodDays: pos.entryDate 
+        ? Math.floor((Date.now() - pos.entryDate.getTime()) / (24 * 60 * 60 * 1000))
+        : 0,
     };
   }
 
@@ -76,12 +84,12 @@ export class PositionLifecycleManager {
       if (position.length > 0) {
         await db.delete(positions).where(eq(positions.symbol, symbol));
 
-        metrics.increment("position.close.success");
-        logger.info("Position closed successfully", { symbol });
+        metrics.updateApplicationMetrics({ requestRate: metrics.getMetrics().application.requestRate + 1 });
+        logger.log({ operation: "position.close.success", metadata: { symbol } });
       }
     } catch (error) {
-      metrics.increment("position.close.error");
-      logger.error("Failed to close position", { error, symbol });
+      metrics.updateApplicationMetrics({ errorRate: metrics.getMetrics().application.errorRate + 1 });
+      logger.error(error instanceof Error ? error : new Error(String(error)), { operation: "position.close.error", metadata: { symbol } });
       throw error;
     }
   }

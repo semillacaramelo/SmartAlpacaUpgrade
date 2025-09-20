@@ -84,4 +84,5 @@ class PerformanceLogger {
 }
 
 export const performanceLogger = PerformanceLogger.getInstance();
+export const logger = performanceLogger; // Export as logger for compatibility
 export type { LogContext };

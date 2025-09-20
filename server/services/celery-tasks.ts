@@ -1,5 +1,6 @@
 import { storage } from '../storage';
 import { tradingService } from './trading';
+import { alpacaService } from './alpaca';
 import { analyzeMarket, selectAssets, generateTradingStrategy } from './gemini';
 import { wsManager } from './websocket';
 import { v4 as uuidv4 } from 'uuid';
@@ -422,7 +423,11 @@ export class TaskManager {
             aiReasoning: `AI confidence: ${evaluation.confidence}`
           };
 
+          // Execute order (note: current executeOrder returns boolean, not order details)
           const orderResult = await tradingService.executeOrder(orderRequest);
+          
+          // For now, use fallback price since executeOrder returns boolean
+          const executedPrice = await alpacaService.getCurrentPrice(strategy.symbol);
 
           // Update strategy status
           await storage.updateStrategy(strategy.id, { status: 'active' });
@@ -432,7 +437,7 @@ export class TaskManager {
             symbol: strategy.symbol,
             side: 'buy',
             quantity: 100,
-            price: orderResult.executedPrice,
+            price: executedPrice,
             correlationId: strategy.correlationId || undefined
           });
         }

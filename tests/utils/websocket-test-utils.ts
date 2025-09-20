@@ -12,8 +12,9 @@ export class MockWebSocketServer {
     this.server.on("connection", (socket) => {
       this.connectedClients.add(socket as unknown as WebSocket);
 
-      socket.on("message", (data: string) => {
-        this.handleMessage(data);
+      socket.on("message", (data: string | ArrayBuffer | ArrayBufferView | Blob) => {
+        const stringData = typeof data === 'string' ? data : data.toString();
+        this.handleMessage(stringData);
       });
 
       socket.on("close", () => {
@@ -102,7 +103,9 @@ export class MockWebSocketServer {
 
   // Helper method to simulate reconnection
   public simulateReconnect() {
-    this.server.restart();
+    // Note: mock-socket doesn't have restart method
+    // For testing purposes, we'll just note that reconnection would happen
+    console.log("Simulating WebSocket reconnection");
   }
 }
 

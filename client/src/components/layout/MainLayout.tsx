@@ -1,7 +1,6 @@
 import { ReactNode } from "react";
+import { Header } from "./Header";
 import Sidebar from "./sidebar";
-import Header from "./header";
-import CompactActivityFeed from "./CompactActivityFeed";
 import { useTradingData } from "@/hooks/use-trading-data";
 import { useWebSocket } from "@/hooks/use-websocket";
 
@@ -10,20 +9,23 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
-  const { systemMetrics } = useTradingData();
-  const { isConnected } = useWebSocket();
+  const tradingData = useTradingData();
+  const wsData = useWebSocket();
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="min-h-screen bg-background flex">
       <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col">
         <Header
-          isConnected={isConnected}
-          botStatus={systemMetrics?.bot_status || "stopped"}
+          wsConnected={wsData.isConnected}
+          isApiConnected={!tradingData.error}
+          botStatus={tradingData.systemMetrics?.bot_status === "running" ? "active" :
+            tradingData.systemMetrics?.bot_status === "error" ? "error" : "stopped"}
         />
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-auto">
+          {children}
+        </main>
       </div>
-      <CompactActivityFeed />
     </div>
   );
 }

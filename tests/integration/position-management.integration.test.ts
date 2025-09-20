@@ -89,7 +89,7 @@ describe("Position Management System Integration", () => {
 
   describe("Position Lifecycle Management", () => {
     test("should create and update position correctly", async () => {
-      await lifecycleManager.updatePosition(mockPositionUpdate);
+      await lifecycleManager.updatePosition(mockPositionUpdate.data);
       const metrics = await lifecycleManager.calculatePositionMetrics("AAPL");
       expect(metrics).toMatchObject({
         totalValue: 15500, // 100 * 155.0
@@ -99,7 +99,7 @@ describe("Position Management System Integration", () => {
     });
 
     test("should close position successfully", async () => {
-      await lifecycleManager.updatePosition(mockPositionUpdate);
+      await lifecycleManager.updatePosition(mockPositionUpdate.data);
       await lifecycleManager.closePosition("AAPL");
       const metrics = await lifecycleManager.calculatePositionMetrics("AAPL");
       expect(metrics).toBeNull();
@@ -117,7 +117,7 @@ describe("Position Management System Integration", () => {
     });
 
     test("should check portfolio exposure correctly", async () => {
-      await lifecycleManager.updatePosition(mockPositionUpdate);
+      await lifecycleManager.updatePosition(mockPositionUpdate.data);
       const isValid = await riskControl.checkPortfolioExposure();
       expect(isValid).toBe(true);
     });
@@ -132,7 +132,7 @@ describe("Position Management System Integration", () => {
           dayPnL: -400.0,
         },
       };
-      await lifecycleManager.updatePosition(badPosition);
+            await lifecycleManager.updatePosition(badPosition.data);
       const shouldStop = await riskControl.checkStopLoss("AAPL");
       expect(shouldStop).toBe(false);
     });

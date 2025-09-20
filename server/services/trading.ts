@@ -2,6 +2,8 @@ import { storage } from "../storage";
 import { alpacaService } from "./alpaca";
 import { strategyEvaluator, MarketBar } from "./evaluator";
 import { metricsCollector } from "./metrics";
+import { transactionService, type TradeExecutionData, type PositionUpdateData } from "./transaction";
+import { v4 as uuidv4 } from "uuid";
 
 export interface MarketData {
   symbol: string;
@@ -226,6 +228,7 @@ export class TradingService {
   public async executeOrder(order: OrderRequest): Promise<boolean> {
     const startTimer = metricsCollector.startPerformanceTimer('orderExecution');
     this.totalTrades++;
+    const correlationId = order.correlationId || uuidv4();
     
     // Validate order parameters
     if (order.quantity <= 0) {
@@ -237,6 +240,7 @@ export class TradingService {
         await this.getCurrentPrice(order.symbol) : 
         order.price!;
 
+      // Execute order with Alpaca
       const result = await alpacaService.placeOrder({
         symbol: order.symbol,
         qty: order.quantity,
@@ -244,12 +248,65 @@ export class TradingService {
         type: order.type,
         ...(order.price && { limit_price: order.price }),
       });
+      
       const endTime = startTimer();
 
       if (result) {
         this.successfulTrades++;
         const executedPrice = result.filled_avg_price || expectedPrice;
         const slippage = Math.abs((executedPrice - expectedPrice) / expectedPrice);
+
+        // Use transaction service for consistent database updates
+        const portfolioId = "default-portfolio"; // In production, get from user context
+        
+        // Get current position if it exists
+        const currentPositions = await storage.getOpenPositions(portfolioId);
+        const existingPosition = currentPositions.find(p => p.symbol === order.symbol);
+        
+        // Calculate new position data
+        const currentQuantity = existingPosition?.quantity || 0;
+        const currentAvgPrice = parseFloat(existingPosition?.averageEntryPrice || existingPosition?.entryPrice || "0");
+        const newQuantity = order.side === "buy" 
+          ? currentQuantity + order.quantity 
+          : currentQuantity - order.quantity;
+        
+        // Calculate new average price for buys
+        let newAvgPrice = executedPrice;
+        if (order.side === "buy" && existingPosition) {
+          const totalCost = (currentQuantity * currentAvgPrice) + (order.quantity * executedPrice);
+          newAvgPrice = totalCost / newQuantity;
+        } else if (order.side === "sell") {
+          newAvgPrice = currentAvgPrice; // Keep existing avg price for sells
+        }
+
+        const marketValue = newQuantity * executedPrice;
+        const unrealizedPnl = newQuantity * (executedPrice - newAvgPrice);
+
+        // Prepare transaction data
+        const tradeData: TradeExecutionData = {
+          symbol: order.symbol,
+          side: order.side,
+          quantity: order.quantity,
+          price: executedPrice,
+          portfolioId,
+          correlationId,
+          alpacaOrderId: result.id
+        };
+
+        const positionData: PositionUpdateData = {
+          positionId: existingPosition?.id,
+          symbol: order.symbol,
+          portfolioId,
+          quantity: newQuantity,
+          entryPrice: executedPrice,
+          averageEntryPrice: newAvgPrice,
+          marketValue,
+          unrealizedPnL: unrealizedPnl,
+          realizedPnL: order.side === "sell" ? (executedPrice - currentAvgPrice) * order.quantity : undefined
+        };
+
+        // Execute with full transaction consistency
+        await transactionService.executeTradeWithConsistency(tradeData, positionData);
 
         metricsCollector.updateTradingMetrics({
           executionTime: endTime,
@@ -266,6 +323,19 @@ export class TradingService {
         executionTime: endTime,
         successRate: (this.successfulTrades / this.totalTrades) * 100
       });
+      
+      // Log error with correlation ID
+      await storage.createAuditLog({
+        eventType: "ORDER_EXECUTION_FAILED",
+        eventData: { 
+          order, 
+          error: error instanceof Error ? error.message : String(error) 
+        },
+        source: "trading_service",
+        level: "error",
+        correlationId
+      });
+      
       throw error;
     }
   }

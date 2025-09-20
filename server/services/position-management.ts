@@ -1,7 +1,7 @@
 import { DrizzleError } from "drizzle-orm";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
-import { tradeExecutions, positions, riskMetrics } from "../schema";
+import { tradeExecutions, positions, riskMetrics } from "../../shared/schema";
 import {
   TradeExecution,
   PositionUpdate,
@@ -17,20 +17,24 @@ export class PositionManagementService {
         orderId: execution.orderId,
         symbol: execution.symbol,
         quantity: execution.quantity,
-        price: execution.price,
+        price: execution.price.toString(), // Convert to string for decimal field
         side: execution.side,
         timestamp: execution.timestamp,
         executionId: execution.executionId,
-        commission: execution.commission,
+        commission: execution.commission?.toString(), // Convert to string for decimal field
       });
 
-      metrics.increment("trade.execution.success");
-      logger.info("Trade execution tracked successfully", {
+      metrics.updateApplicationMetrics({ requestRate: metrics.getMetrics().application.requestRate + 1 });
+      logger.log({ operation: "trade.execution.success", metadata: {
         executionId: execution.executionId,
-      });
+        symbol: execution.symbol
+      } });
     } catch (error) {
-      metrics.increment("trade.execution.error");
-      logger.error("Failed to track trade execution", { error, execution });
+      metrics.updateApplicationMetrics({ errorRate: metrics.getMetrics().application.errorRate + 1 });
+      logger.error(error instanceof Error ? error : new Error(String(error)), { 
+        operation: "trade.execution.error", 
+        metadata: { execution }
+      });
       throw error;
     }
   }
@@ -43,9 +47,24 @@ export class PositionManagementService {
         .where(eq(tradeExecutions.symbol, symbol))
         .orderBy(tradeExecutions.timestamp);
 
-      return executions;
+      // Transform database results to match TradeExecution interface
+      return executions.map(exec => ({
+        ...exec,
+        side: exec.side as "buy" | "sell", // Cast to proper type
+        price: parseFloat(exec.price), // Convert string to number
+        commission: exec.commission ? parseFloat(exec.commission) : undefined,
+        executedAt: exec.executedAt || new Date(),
+        timestamp: exec.timestamp || undefined,
+        correlationId: exec.correlationId || undefined, // Convert null to undefined
+        strategyName: exec.strategyName || undefined,   // Convert null to undefined
+        aiReasoning: exec.aiReasoning || undefined,     // Convert null to undefined
+        executionId: exec.executionId || undefined,     // Convert null to undefined
+      }));
     } catch (error) {
-      logger.error("Failed to fetch execution history", { error, symbol });
+      logger.error(error instanceof Error ? error : new Error(String(error)), { 
+        operation: "fetch.execution.history", 
+        metadata: { symbol }
+      });
       throw error;
     }
   }
@@ -62,7 +81,7 @@ export class PositionManagementService {
         executions.reduce((sum, exec) => sum + exec.price, 0) /
         executions.length,
       totalCommission: executions.reduce(
-        (sum, exec) => sum + exec.commission,
+        (sum, exec) => sum + (exec.commission || 0),
         0
       ),
     };

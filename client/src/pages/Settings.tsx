@@ -1,1016 +1,587 @@
 import { useState, useEffect } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Settings as SettingsIcon,
-  Key,
-  Bell,
-  Palette,
-  Shield,
-  Database,
-  Save,
-  TestTube,
-  CheckCircle,
-  AlertTriangle,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { CheckCircle, XCircle, Loader2, Eye, EyeOff, Key, Bot, Zap, Shield, Settings as SettingsIcon } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+
+interface TestResult {
+  success: boolean;
+  message: string;
+  loading: boolean;
+}
+
+interface ApiSettings {
+  alpacaApiKey: string;
+  alpacaSecret: string;
+  geminiApiKey: string;
+}
+
+interface TradingSettings {
+  tradingMode: 'paper' | 'live';
+  autoTrading: boolean;
+  maxPositionSize: number;
+  stopLoss: number;
+  takeProfit: number;
+  enableAIRisk: boolean;
+}
 
 export default function Settings() {
-  const [apiSettings, setApiSettings] = useState({
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<ApiSettings>({
     alpacaApiKey: "",
-    alpacaSecretKey: "",
-    geminiApiKey: "",
-    enablePaperTrading: true,
-    enableRealTrading: false,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const [notificationSettings, setNotificationSettings] = useState({
-    emailNotifications: true,
-    pushNotifications: false,
-    tradeAlerts: true,
-    riskAlerts: true,
-    systemAlerts: true,
-    emailAddress: "",
+    alpacaSecret: "",
+    geminiApiKey: ""
   });
 
-  const [uiSettings, setUiSettings] = useState({
-    theme: "system",
-    language: "en",
-    timezone: "UTC",
-    dateFormat: "MM/DD/YYYY",
-    currency: "USD",
-    itemsPerPage: "25",
+  // Trading settings state
+  const [tradingSettings, setTradingSettings] = useState<TradingSettings>({
+    tradingMode: 'paper',
+    autoTrading: false,
+    maxPositionSize: 10,
+    stopLoss: 5,
+    takeProfit: 15,
+    enableAIRisk: false
   });
 
-  const [securitySettings, setSecuritySettings] = useState({
-    twoFactorAuth: false,
-    sessionTimeout: "30",
-    passwordExpiry: "90",
-    loginAttempts: "5",
+  // UI state
+  const [showKeys, setShowKeys] = useState({
+    alpacaApiKey: false,
+    alpacaSecret: false,
+    geminiApiKey: false
   });
 
-  const [showApiKeys, setShowApiKeys] = useState({
-    alpaca: false,
-    gemini: false,
+  // Test results state
+  const [alpacaTest, setAlpacaTest] = useState<TestResult>({
+    success: false,
+    message: "",
+    loading: false
   });
 
-  const [connectionStatus, setConnectionStatus] = useState({
-    alpaca: { status: "unknown", message: "" },
-    gemini: { status: "unknown", message: "" },
+  const [geminiTest, setGeminiTest] = useState<TestResult>({
+    success: false,
+    message: "",
+    loading: false
   });
 
-  // Load current settings on component mount
+  const queryClient = useQueryClient();
+
+  // Load settings query
+  const { data: loadedSettings, isLoading: isLoadingSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const response = await fetch('/api/settings/api');
+      if (!response.ok) throw new Error('Failed to load settings');
+      return response.json();
+    },
+    retry: false,
+    meta: {
+      errorMessage: 'Failed to load settings'
+    }
+  });
+
+  // Update API keys when loaded
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch("/api/settings/api?userId=demo-user", {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+    if (loadedSettings) {
+      setApiKeys({
+        alpacaApiKey: loadedSettings.alpacaApiKey || "",
+        alpacaSecret: loadedSettings.alpacaSecret || "",
+        geminiApiKey: loadedSettings.geminiApiKey || ""
+      });
+      setTradingSettings({
+        tradingMode: loadedSettings.tradingMode || 'paper',
+        autoTrading: loadedSettings.autoTrading || false,
+        maxPositionSize: loadedSettings.maxPositionSize || 10,
+        stopLoss: loadedSettings.stopLoss || 5,
+        takeProfit: loadedSettings.takeProfit || 15,
+        enableAIRisk: loadedSettings.enableAIRisk || false
+      });
+    }
+  }, [loadedSettings]);
 
-        const data = await response.json();
+  // Save settings mutation
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (settings: ApiSettings & TradingSettings) => {
+      const response = await fetch('/api/settings/api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      if (!response.ok) throw new Error('Failed to save settings');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      toast({
+        title: "Settings Saved",
+        description: "Your configuration has been saved successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Save Failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
 
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to load settings");
-        }
-
-        // Populate the form with loaded settings
-        setApiSettings({
-          alpacaApiKey: data.alpacaApiKey || "",
-          alpacaSecretKey: data.alpacaSecretKey || "",
-          geminiApiKey: data.geminiApiKey || "",
-          enablePaperTrading:
-            data.enablePaperTrading !== undefined
-              ? data.enablePaperTrading
-              : true,
-          enableRealTrading:
-            data.enableRealTrading !== undefined
-              ? data.enableRealTrading
-              : false,
-        });
-
-        console.log("Settings loaded successfully:", {
-          alpacaApiKey: !!data.alpacaApiKey,
-          alpacaSecretKey: !!data.alpacaSecretKey,
-          geminiApiKey: !!data.geminiApiKey,
-          enablePaperTrading: data.enablePaperTrading,
-          enableRealTrading: data.enableRealTrading,
-        });
-      } catch (error: any) {
-        console.error("Load settings error:", error);
-        setError(`Failed to load settings: ${error.message}`);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadSettings();
-  }, []);
-
-  const testApiConnection = async (service: "alpaca" | "gemini") => {
-    setConnectionStatus((prev) => ({
-      ...prev,
-      [service]: { status: "testing", message: "Testing connection..." },
-    }));
+  // Test API connections
+  const testAlpacaConnection = async () => {
+    setAlpacaTest({ success: false, message: "", loading: true });
 
     try {
-      let response;
-      if (service === "alpaca") {
-        response = await fetch("/api/test/alpaca", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            apiKey: apiSettings.alpacaApiKey,
-            secretKey: apiSettings.alpacaSecretKey,
-          }),
+      const response = await fetch('/api/test/alpaca', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: apiKeys.alpacaApiKey,
+          secret: apiKeys.alpacaSecret
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setAlpacaTest({
+          success: true,
+          message: result.message || "Connection successful",
+          loading: false
         });
       } else {
-        response = await fetch("/api/test/gemini", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            apiKey: apiSettings.geminiApiKey,
-          }),
+        setAlpacaTest({
+          success: false,
+          message: result.message || "Connection failed",
+          loading: false
         });
       }
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || "Connection failed.");
-      }
-
-      setConnectionStatus((prev) => ({
-        ...prev,
-        [service]: { status: "success", message: "Connection successful!" },
-      }));
-    } catch (error: any) {
-      setConnectionStatus((prev) => ({
-        ...prev,
-        [service]: { status: "error", message: error.message },
-      }));
+    } catch (error) {
+      setAlpacaTest({
+        success: false,
+        message: "Network error occurred",
+        loading: false
+      });
     }
   };
 
-  const saveApiSettings = async () => {
+  const testGeminiConnection = async () => {
+    setGeminiTest({ success: false, message: "", loading: true });
+
     try {
-      console.log("Sending settings:", {
-        userId: "demo-user",
-        alpacaApiKey: !!apiSettings.alpacaApiKey, // Don't log actual keys
-        alpacaSecretKey: !!apiSettings.alpacaSecretKey,
-        geminiApiKey: !!apiSettings.geminiApiKey,
-        enablePaperTrading: apiSettings.enablePaperTrading,
-        enableRealTrading: apiSettings.enableRealTrading,
-      });
-
-      const response = await fetch("/api/settings/api", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+      const response = await fetch('/api/test/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: "demo-user", // For now, using demo-user as the userId
-          alpacaApiKey: apiSettings.alpacaApiKey,
-          alpacaSecretKey: apiSettings.alpacaSecretKey,
-          geminiApiKey: apiSettings.geminiApiKey,
-          enablePaperTrading: apiSettings.enablePaperTrading,
-          enableRealTrading: apiSettings.enableRealTrading,
-        }),
+          apiKey: apiKeys.geminiApiKey
+        })
       });
 
-      const data = await response.json();
+      const result = await response.json();
 
-      console.log("Response received:", data);
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || "Failed to save settings.");
+      if (response.ok && result.success) {
+        setGeminiTest({
+          success: true,
+          message: result.message || "Connection successful",
+          loading: false
+        });
+      } else {
+        setGeminiTest({
+          success: false,
+          message: result.message || "Connection failed",
+          loading: false
+        });
       }
-
-      alert("API settings saved successfully!");
-    } catch (error: any) {
-      console.error("Save settings error:", error);
-      alert(`Failed to save API settings: ${error.message}`);
+    } catch (error) {
+      setGeminiTest({
+        success: false,
+        message: "Network error occurred",
+        loading: false
+      });
     }
   };
 
-  const getConnectionStatusIcon = (statusObj: {
-    status: string;
-    message: string;
-  }) => {
-    switch (statusObj.status) {
-      case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "error":
-        return <AlertTriangle className="h-4 w-4 text-red-500" />;
-      case "testing":
-        return (
-          <div className="h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-        );
-      default:
-        return <div className="h-4 w-4 rounded-full bg-gray-300" />;
-    }
+  const handleSaveSettings = () => {
+    saveSettingsMutation.mutate({ ...apiKeys, ...tradingSettings });
   };
 
-  const getConnectionStatusText = (statusObj: {
-    status: string;
-    message: string;
-  }) => {
-    switch (statusObj.status) {
-      case "success":
-        return "Connected";
-      case "error":
-        return "Connection Failed";
-      case "testing":
-        return "Testing...";
-      default:
-        return "Not Configured";
-    }
+  const maskApiKey = (key: string) => {
+    if (!key || key.length < 8) return key;
+    return "*".repeat(key.length - 4) + key.slice(-4);
   };
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
+    <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Settings</h1>
-          <p className="text-muted-foreground">
-            Configure your trading application
-          </p>
+          <p className="text-muted-foreground">Configure your trading platform settings</p>
         </div>
-        <Badge variant="outline" className="text-sm">
-          Configuration Center
+        <Badge variant="outline" className="px-3 py-1">
+          <SettingsIcon className="w-4 h-4 mr-2" />
+          Configuration
         </Badge>
       </div>
 
-      <Tabs defaultValue="api" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="api">API Keys</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="ui">Interface</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="advanced">Advanced</TabsTrigger>
+      <Tabs defaultValue="api-keys" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="api-keys" className="flex items-center gap-2">
+            <Key className="w-4 h-4" />
+            API Keys
+          </TabsTrigger>
+          <TabsTrigger value="trading" className="flex items-center gap-2">
+            <Bot className="w-4 h-4" />
+            Trading
+          </TabsTrigger>
+          <TabsTrigger value="risk" className="flex items-center gap-2">
+            <Shield className="w-4 h-4" />
+            Risk Management
+          </TabsTrigger>
+          <TabsTrigger value="system" className="flex items-center gap-2">
+            <Zap className="w-4 h-4" />
+            System
+          </TabsTrigger>
         </TabsList>
 
-        {/* API Settings Tab */}
-        <TabsContent value="api" className="space-y-6">
-          <Alert>
-            <Shield className="h-4 w-4" />
-            <AlertDescription>
-              API keys are encrypted and stored securely. Never share your API
-              keys with anyone.
-            </AlertDescription>
-          </Alert>
-
-          {/* Alpaca API Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Key className="h-5 w-5" />
-                Alpaca Trading API
-              </CardTitle>
-              <CardDescription>
-                Configure your Alpaca brokerage API credentials for live trading
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <TabsContent value="api-keys" className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Alpaca API Settings */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <img src="https://alpaca.markets/favicon.ico" alt="Alpaca" className="w-5 h-5" />
+                  Alpaca API Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="alpacaApiKey">API Key</Label>
+                  <Label htmlFor="alpaca-key">API Key</Label>
                   <div className="relative">
                     <Input
-                      id="alpacaApiKey"
-                      type={showApiKeys.alpaca ? "text" : "password"}
-                      value={apiSettings.alpacaApiKey}
-                      onChange={(e) =>
-                        setApiSettings((prev) => ({
-                          ...prev,
-                          alpacaApiKey: e.target.value,
-                        }))
-                      }
-                      placeholder="Enter your Alpaca API Key"
-                      autoComplete="off"
+                      id="alpaca-key"
+                      type={showKeys.alpacaApiKey ? "text" : "password"}
+                      placeholder={apiKeys.alpacaApiKey ? maskApiKey(apiKeys.alpacaApiKey) : "Enter Alpaca API key"}
+                      value={showKeys.alpacaApiKey ? apiKeys.alpacaApiKey : maskApiKey(apiKeys.alpacaApiKey)}
+                      onChange={(e) => setApiKeys(prev => ({ ...prev, alpacaApiKey: e.target.value }))}
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="absolute right-0 top-0 h-full px-3"
-                      onClick={() =>
-                        setShowApiKeys((prev) => ({
-                          ...prev,
-                          alpaca: !prev.alpaca,
-                        }))
-                      }
+                      onClick={() => setShowKeys(prev => ({ ...prev, alpacaApiKey: !prev.alpacaApiKey }))}
                     >
-                      {showApiKeys.alpaca ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
+                      {showKeys.alpacaApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="alpacaSecretKey">Secret Key</Label>
+                  <Label htmlFor="alpaca-secret">Secret Key</Label>
                   <div className="relative">
                     <Input
-                      id="alpacaSecretKey"
-                      type={showApiKeys.alpaca ? "text" : "password"}
-                      value={apiSettings.alpacaSecretKey}
-                      onChange={(e) =>
-                        setApiSettings((prev) => ({
-                          ...prev,
-                          alpacaSecretKey: e.target.value,
-                        }))
-                      }
-                      placeholder="Enter your Alpaca Secret Key"
-                      autoComplete="off"
+                      id="alpaca-secret"
+                      type={showKeys.alpacaSecret ? "text" : "password"}
+                      placeholder={apiKeys.alpacaSecret ? maskApiKey(apiKeys.alpacaSecret) : "Enter Alpaca secret key"}
+                      value={showKeys.alpacaSecret ? apiKeys.alpacaSecret : maskApiKey(apiKeys.alpacaSecret)}
+                      onChange={(e) => setApiKeys(prev => ({ ...prev, alpacaSecret: e.target.value }))}
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="absolute right-0 top-0 h-full px-3"
-                      onClick={() =>
-                        setShowApiKeys((prev) => ({
-                          ...prev,
-                          alpaca: !prev.alpaca,
-                        }))
-                      }
+                      onClick={() => setShowKeys(prev => ({ ...prev, alpacaSecret: !prev.alpacaSecret }))}
                     >
-                      {showApiKeys.alpaca ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
+                      {showKeys.alpacaSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Paper Trading</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Use Alpaca's paper trading environment
-                  </p>
-                </div>
-                <Switch
-                  checked={apiSettings.enablePaperTrading}
-                  onCheckedChange={(checked: boolean) =>
-                    setApiSettings((prev) => ({
-                      ...prev,
-                      enablePaperTrading: checked,
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Live Trading</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Enable live trading with real money
-                  </p>
-                </div>
-                <Switch
-                  checked={apiSettings.enableRealTrading}
-                  onCheckedChange={(checked: boolean) =>
-                    setApiSettings((prev) => ({
-                      ...prev,
-                      enableRealTrading: checked,
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Connection Status</span>
-                  {getConnectionStatusIcon(connectionStatus.alpaca)}
-                  <span className="text-sm text-muted-foreground">
-                    {getConnectionStatusText(connectionStatus.alpaca)}
-                  </span>
-                </div>
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiConnection("alpaca")}
-                  disabled={connectionStatus.alpaca.status === "testing"}
+                  onClick={testAlpacaConnection}
+                  disabled={!apiKeys.alpacaApiKey || !apiKeys.alpacaSecret || alpacaTest.loading}
+                  className="w-full"
                 >
-                  <TestTube className="h-4 w-4 mr-2" />
-                  Test Connection
-                </Button>
-              </div>
-
-              {connectionStatus.alpaca.message && (
-                <Alert
-                  variant={
-                    connectionStatus.alpaca.status === "success"
-                      ? "default"
-                      : "destructive"
-                  }
-                >
-                  {connectionStatus.alpaca.status === "success" ? (
-                    <CheckCircle className="h-4 w-4" />
+                  {alpacaTest.loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Testing...
+                    </>
                   ) : (
-                    <AlertTriangle className="h-4 w-4" />
+                    'Test Alpaca Connection'
                   )}
-                  <AlertDescription>
-                    {connectionStatus.alpaca.message}
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
+                </Button>
 
-          {/* Gemini API Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <SettingsIcon className="h-5 w-5" />
-                Google Gemini AI API
-              </CardTitle>
-              <CardDescription>
-                Configure your Gemini API key for AI-powered trading analysis
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="geminiApiKey">API Key</Label>
-                <div className="relative">
-                  <Input
-                    id="geminiApiKey"
-                    type={showApiKeys.gemini ? "text" : "password"}
-                    value={apiSettings.geminiApiKey}
-                    onChange={(e) =>
-                      setApiSettings((prev) => ({
-                        ...prev,
-                        geminiApiKey: e.target.value,
-                      }))
-                    }
-                    placeholder="Enter your Gemini API Key"
-                    autoComplete="off"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3"
-                    onClick={() =>
-                      setShowApiKeys((prev) => ({
-                        ...prev,
-                        gemini: !prev.gemini,
-                      }))
-                    }
-                  >
-                    {showApiKeys.gemini ? (
-                      <EyeOff className="h-4 w-4" />
+                {alpacaTest.message && (
+                  <Alert variant={alpacaTest.success ? "default" : "destructive"}>
+                    {alpacaTest.success ? (
+                      <CheckCircle className="h-4 w-4" />
                     ) : (
-                      <Eye className="h-4 w-4" />
+                      <XCircle className="h-4 w-4" />
                     )}
-                  </Button>
-                </div>
-              </div>
+                    <AlertDescription>{alpacaTest.message}</AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Connection Status</span>
-                  {getConnectionStatusIcon(connectionStatus.gemini)}
-                  <span className="text-sm text-muted-foreground">
-                    {getConnectionStatusText(connectionStatus.gemini)}
-                  </span>
+            {/* Gemini AI Settings */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Bot className="w-5 h-5" />
+                  Gemini AI Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="gemini-key">API Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="gemini-key"
+                      type={showKeys.geminiApiKey ? "text" : "password"}
+                      placeholder={apiKeys.geminiApiKey ? maskApiKey(apiKeys.geminiApiKey) : "Enter Gemini API key"}
+                      value={showKeys.geminiApiKey ? apiKeys.geminiApiKey : maskApiKey(apiKeys.geminiApiKey)}
+                      onChange={(e) => setApiKeys(prev => ({ ...prev, geminiApiKey: e.target.value }))}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3"
+                      onClick={() => setShowKeys(prev => ({ ...prev, geminiApiKey: !prev.geminiApiKey }))}
+                    >
+                      {showKeys.geminiApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
+
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiConnection("gemini")}
-                  disabled={connectionStatus.gemini.status === "testing"}
+                  onClick={testGeminiConnection}
+                  disabled={!apiKeys.geminiApiKey || geminiTest.loading}
+                  className="w-full"
                 >
-                  <TestTube className="h-4 w-4 mr-2" />
-                  Test Connection
-                </Button>
-              </div>
-
-              {connectionStatus.gemini.message && (
-                <Alert
-                  variant={
-                    connectionStatus.gemini.status === "success"
-                      ? "default"
-                      : "destructive"
-                  }
-                >
-                  {connectionStatus.gemini.status === "success" ? (
-                    <CheckCircle className="h-4 w-4" />
+                  {geminiTest.loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Testing...
+                    </>
                   ) : (
-                    <AlertTriangle className="h-4 w-4" />
+                    'Test Gemini Connection'
                   )}
-                  <AlertDescription>
-                    {connectionStatus.gemini.message}
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
+                </Button>
 
-          <div className="flex justify-end">
-            <Button onClick={saveApiSettings}>
-              <Save className="h-4 w-4 mr-2" />
-              Save API Settings
-            </Button>
+                {geminiTest.message && (
+                  <Alert variant={geminiTest.success ? "default" : "destructive"}>
+                    {geminiTest.success ? (
+                      <CheckCircle className="h-4 w-4" />
+                    ) : (
+                      <XCircle className="h-4 w-4" />
+                    )}
+                    <AlertDescription>{geminiTest.message}</AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
           </div>
-        </TabsContent>
 
-        {/* Notifications Tab */}
-        <TabsContent value="notifications" className="space-y-6">
+          {/* System Status */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="h-5 w-5" />
-                Notification Preferences
-              </CardTitle>
-              <CardDescription>
-                Configure how you want to receive notifications
-              </CardDescription>
+              <CardTitle>System Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">API Server</span>
+                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                    Connected
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Database</span>
+                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                    Connected
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Trading Mode</span>
+                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                    Paper Trading
+                  </Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="trading" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Trading Configuration</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="emailAddress">Email Address</Label>
-                <Input
-                  id="emailAddress"
-                  type="email"
-                  value={notificationSettings.emailAddress}
-                  onChange={(e) =>
-                    setNotificationSettings((prev) => ({
-                      ...prev,
-                      emailAddress: e.target.value,
-                    }))
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="trading-mode">Trading Mode</Label>
+                  <Select
+                    value={tradingSettings.tradingMode}
+                    onValueChange={(value: 'paper' | 'live') =>
+                      setTradingSettings(prev => ({ ...prev, tradingMode: value }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select trading mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="paper">Paper Trading</SelectItem>
+                      <SelectItem value="live">Live Trading</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Paper trading uses virtual money for testing strategies
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="auto-trading">Auto Trading</Label>
+                    <p className="text-sm text-muted-foreground">Enable automated trading execution</p>
+                  </div>
+                  <Switch
+                    id="auto-trading"
+                    checked={tradingSettings.autoTrading}
+                    onCheckedChange={(checked) =>
+                      setTradingSettings(prev => ({ ...prev, autoTrading: checked }))
+                    }
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="risk" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Risk Management Settings</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between mb-6 pb-4 border-b">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-medium">AI Risk Management</Label>
+                  <p className="text-muted-foreground">Enable AI-powered dynamic risk management</p>
+                </div>
+                <Switch
+                  checked={tradingSettings.enableAIRisk}
+                  onCheckedChange={(checked) =>
+                    setTradingSettings(prev => ({ ...prev, enableAIRisk: checked }))
                   }
-                  placeholder="Enter your email address"
-                  autoComplete="off"
                 />
               </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Email Notifications</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Receive notifications via email
-                    </p>
-                  </div>
-                  <Switch
-                    checked={notificationSettings.emailNotifications}
-                    onCheckedChange={(checked: boolean) =>
-                      setNotificationSettings((prev) => ({
-                        ...prev,
-                        emailNotifications: checked,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Push Notifications</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Receive push notifications in browser
-                    </p>
-                  </div>
-                  <Switch
-                    checked={notificationSettings.pushNotifications}
-                    onCheckedChange={(checked: boolean) =>
-                      setNotificationSettings((prev) => ({
-                        ...prev,
-                        pushNotifications: checked,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Trade Alerts</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Notifications for executed trades
-                    </p>
-                  </div>
-                  <Switch
-                    checked={notificationSettings.tradeAlerts}
-                    onCheckedChange={(checked: boolean) =>
-                      setNotificationSettings((prev) => ({
-                        ...prev,
-                        tradeAlerts: checked,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Risk Alerts</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Notifications for risk limit breaches
-                    </p>
-                  </div>
-                  <Switch
-                    checked={notificationSettings.riskAlerts}
-                    onCheckedChange={(checked: boolean) =>
-                      setNotificationSettings((prev) => ({
-                        ...prev,
-                        riskAlerts: checked,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>System Alerts</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Notifications for system events
-                    </p>
-                  </div>
-                  <Switch
-                    checked={notificationSettings.systemAlerts}
-                    onCheckedChange={(checked: boolean) =>
-                      setNotificationSettings((prev) => ({
-                        ...prev,
-                        systemAlerts: checked,
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <Button>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Notification Settings
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* UI Settings Tab */}
-        <TabsContent value="ui" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palette className="h-5 w-5" />
-                User Interface
-              </CardTitle>
-              <CardDescription>
-                Customize the appearance and behavior of the application
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label htmlFor="theme">Theme</Label>
-                  <Select
-                    value={uiSettings.theme}
-                    onValueChange={(value: string) =>
-                      setUiSettings((prev) => ({ ...prev, theme: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="light">Light</SelectItem>
-                      <SelectItem value="dark">Dark</SelectItem>
-                      <SelectItem value="system">System</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="language">Language</Label>
-                  <Select
-                    value={uiSettings.language}
-                    onValueChange={(value: string) =>
-                      setUiSettings((prev) => ({ ...prev, language: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="es">Español</SelectItem>
-                      <SelectItem value="fr">Français</SelectItem>
-                      <SelectItem value="de">Deutsch</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">Timezone</Label>
-                  <Select
-                    value={uiSettings.timezone}
-                    onValueChange={(value: string) =>
-                      setUiSettings((prev) => ({ ...prev, timezone: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="UTC">UTC</SelectItem>
-                      <SelectItem value="EST">Eastern Time</SelectItem>
-                      <SelectItem value="PST">Pacific Time</SelectItem>
-                      <SelectItem value="GMT">Greenwich Mean Time</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="currency">Currency</Label>
-                  <Select
-                    value={uiSettings.currency}
-                    onValueChange={(value: string) =>
-                      setUiSettings((prev) => ({ ...prev, currency: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="USD">USD ($)</SelectItem>
-                      <SelectItem value="EUR">EUR (€)</SelectItem>
-                      <SelectItem value="GBP">GBP (£)</SelectItem>
-                      <SelectItem value="JPY">JPY (¥)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="dateFormat">Date Format</Label>
-                  <Select
-                    value={uiSettings.dateFormat}
-                    onValueChange={(value: string) =>
-                      setUiSettings((prev) => ({ ...prev, dateFormat: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
-                      <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
-                      <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="itemsPerPage">Items per Page</Label>
-                  <Select
-                    value={uiSettings.itemsPerPage}
-                    onValueChange={(value: string) =>
-                      setUiSettings((prev) => ({
-                        ...prev,
-                        itemsPerPage: value,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10</SelectItem>
-                      <SelectItem value="25">25</SelectItem>
-                      <SelectItem value="50">50</SelectItem>
-                      <SelectItem value="100">100</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <Button>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save UI Settings
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Security Tab */}
-        <TabsContent value="security" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Security Settings
-              </CardTitle>
-              <CardDescription>
-                Configure security and authentication settings
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="sessionTimeout">
-                    Session Timeout (minutes)
-                  </Label>
+                  <Label htmlFor="max-position">Max Position Size (%)</Label>
                   <Input
-                    id="sessionTimeout"
+                    id="max-position"
                     type="number"
-                    value={securitySettings.sessionTimeout}
-                    onChange={(e) =>
-                      setSecuritySettings((prev) => ({
-                        ...prev,
-                        sessionTimeout: e.target.value,
-                      }))
-                    }
-                    autoComplete="off"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="passwordExpiry">Password Expiry (days)</Label>
-                  <Input
-                    id="passwordExpiry"
-                    type="number"
-                    value={securitySettings.passwordExpiry}
-                    onChange={(e) =>
-                      setSecuritySettings((prev) => ({
-                        ...prev,
-                        passwordExpiry: e.target.value,
-                      }))
-                    }
-                    autoComplete="off"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="loginAttempts">Max Login Attempts</Label>
-                  <Input
-                    id="loginAttempts"
-                    type="number"
-                    value={securitySettings.loginAttempts}
-                    onChange={(e) =>
-                      setSecuritySettings((prev) => ({
-                        ...prev,
-                        loginAttempts: e.target.value,
-                      }))
-                    }
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Two-Factor Authentication</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Add an extra layer of security to your account
-                    </p>
-                  </div>
-                  <Switch
-                    checked={securitySettings.twoFactorAuth}
-                    onCheckedChange={(checked: boolean) =>
-                      setSecuritySettings((prev) => ({
-                        ...prev,
-                        twoFactorAuth: checked,
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <Button>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Security Settings
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Advanced Tab */}
-        <TabsContent value="advanced" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
-                Advanced Settings
-              </CardTitle>
-              <CardDescription>
-                Advanced configuration options for power users
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  These settings are for advanced users. Incorrect configuration
-                  may affect system performance.
-                </AlertDescription>
-              </Alert>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="webhookUrl">Webhook URL</Label>
-                  <Input
-                    id="webhookUrl"
-                    type="url"
-                    placeholder="https://your-webhook-url.com"
-                    autoComplete="off"
+                    value={tradingSettings.maxPositionSize}
+                    onChange={(e) => setTradingSettings(prev => ({
+                      ...prev,
+                      maxPositionSize: parseFloat(e.target.value) || 0
+                    }))}
+                    disabled={tradingSettings.enableAIRisk}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Receive real-time notifications via webhook
+                    {tradingSettings.enableAIRisk
+                      ? "AI-managed based on market conditions"
+                      : "Maximum percentage of portfolio per position"}
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="logLevel">Log Level</Label>
-                  <Select defaultValue="info">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="error">Error</SelectItem>
-                      <SelectItem value="warn">Warning</SelectItem>
-                      <SelectItem value="info">Info</SelectItem>
-                      <SelectItem value="debug">Debug</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="backupFrequency">Backup Frequency</Label>
-                  <Select defaultValue="daily">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hourly">Hourly</SelectItem>
-                      <SelectItem value="daily">Daily</SelectItem>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="customConfig">Custom Configuration</Label>
-                  <Textarea
-                    id="customConfig"
-                    placeholder="Enter custom JSON configuration..."
-                    rows={6}
+                  <Label htmlFor="stop-loss">Stop Loss (%)</Label>
+                  <Input
+                    id="stop-loss"
+                    type="number"
+                    value={tradingSettings.stopLoss}
+                    onChange={(e) => setTradingSettings(prev => ({
+                      ...prev,
+                      stopLoss: parseFloat(e.target.value) || 0
+                    }))}
+                    disabled={tradingSettings.enableAIRisk}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Advanced users can override default settings with custom
-                    JSON
+                    {tradingSettings.enableAIRisk
+                      ? "AI-managed based on volatility"
+                      : "Automatic sell when loss exceeds this percentage"}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="take-profit">Take Profit (%)</Label>
+                  <Input
+                    id="take-profit"
+                    type="number"
+                    value={tradingSettings.takeProfit}
+                    onChange={(e) => setTradingSettings(prev => ({
+                      ...prev,
+                      takeProfit: parseFloat(e.target.value) || 0
+                    }))}
+                    disabled={tradingSettings.enableAIRisk}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {tradingSettings.enableAIRisk
+                      ? "AI-managed based on market momentum"
+                      : "Automatic sell when profit reaches this percentage"}
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-              <div className="flex justify-end space-x-2">
-                <Button variant="outline">Export Settings</Button>
-                <Button>Save Advanced Settings</Button>
+        <TabsContent value="system" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>System Configuration</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8">
+                <Zap className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">System settings coming soon</p>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Save Button */}
+      <div className="flex justify-end pt-6 border-t">
+        <Button
+          onClick={handleSaveSettings}
+          disabled={saveSettingsMutation.isPending || isLoadingSettings}
+          size="lg"
+        >
+          {saveSettingsMutation.isPending ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            'Save Settings'
+          )}
+        </Button>
+      </div>
     </div>
   );
 }

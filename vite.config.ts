@@ -19,9 +19,26 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    host: "localhost", // Listen only on localhost for development
+    port: 3000, // Vite dev server port (different from Express)
     fs: {
       strict: true,
       deny: ["**/.*"],
+      allow: ['..'] // Allow access to parent directories
     },
+    proxy: {
+      // Proxy API calls to Express server
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false
+      },
+      // Proxy WebSocket connections
+      '/ws': {
+        target: 'ws://localhost:5000',
+        ws: true,
+        changeOrigin: true
+      }
+    }
   },
 });

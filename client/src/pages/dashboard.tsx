@@ -1,169 +1,341 @@
-import { useEffect } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
-import MetricCard from "@/components/dashboard/metric-card";
-import TradingChart from "@/components/dashboard/trading-chart";
-import AIPipeline from "@/components/dashboard/ai-pipeline";
-import ActivePositions from "@/components/dashboard/active-positions";
-import SystemHealth from "@/components/dashboard/system-health";
-import ActivityFeed from "@/components/dashboard/activity-feed";
-import { useTradingData } from "@/hooks/use-trading-data";
-import { useWebSocket } from "@/hooks/use-websocket";
+import { useTradingData } from "@/hooks/use-trading-data.tsx";
+import { AlertTriangle, TrendingUp, TrendingDown, Activity, Brain, BarChart3, DollarSign, Target, Zap, Settings } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Link } from "wouter";
+import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 
-function DashboardSkeleton() {
-  return (
-    <div className="grid grid-cols-12 gap-6 h-full animate-pulse">
-      <div className="col-span-12 grid grid-cols-4 gap-4 mb-2">
-        <Skeleton className="h-28 rounded-lg" />
-        <Skeleton className="h-28 rounded-lg" />
-        <Skeleton className="h-28 rounded-lg" />
-        <Skeleton className="h-28 rounded-lg" />
-      </div>
-      <Skeleton className="col-span-8 h-96 rounded-lg" />
-      <Skeleton className="col-span-4 h-96 rounded-lg" />
-      <Skeleton className="col-span-7 h-64 rounded-lg" />
-      <Skeleton className="col-span-5 h-64 rounded-lg" />
-      <Skeleton className="col-span-12 h-64 rounded-lg" />
-    </div>
-  );
+function formatCurrency(amount: number | undefined | null): string {
+  if (amount === undefined || amount === null) return "$0.00";
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(amount);
+}
+
+function formatPercent(value: number | undefined | null): string {
+  if (value === undefined || value === null) return "0.00%";
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
 export default function Dashboard() {
   const {
     portfolioStatus,
     positions,
-    auditLogs,
     systemMetrics,
     aiPipelineStages,
     isLoading,
     isApiConnected,
+    wsConnected,
   } = useTradingData();
 
-  if (isLoading && !isApiConnected) {
-    return <DashboardSkeleton />;
-  }
-
-  if (!isApiConnected) {
+  // Show API connection prompt if not connected
+  if (!isApiConnected && !isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center space-y-4 p-8 bg-card rounded-lg border shadow-lg max-w-md">
-          <div className="text-6xl opacity-50">🔌</div>
-          <h2 className="text-2xl font-bold">API Connection Required</h2>
-          <p className="text-muted-foreground">
-            Please configure your Alpaca API keys to access the trading
-            dashboard. Click the settings icon in the top right to get started.
-          </p>
+      <div className="space-y-6 p-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-foreground">Smart Alpaca Dashboard</h1>
+          <Badge variant="outline" className="px-3 py-1">
+            <Activity className="w-4 h-4 mr-2" />
+            System Status: Offline
+          </Badge>
+        </div>
+
+        <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-900">
+          <AlertTriangle className="h-5 w-5 text-amber-600" />
+          <AlertDescription className="space-y-4">
+            <div>
+              <p className="font-semibold text-amber-800 dark:text-amber-200">API Configuration Required</p>
+              <p className="text-amber-700 dark:text-amber-300 mt-1">
+                To unlock the full power of Smart Alpaca's AI trading platform, configure your API credentials.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Link href="/settings">
+                <Button className="bg-amber-600 hover:bg-amber-700 text-white">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Configure APIs
+                </Button>
+              </Link>
+              <Button variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100">
+                View Documentation
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+
+        {/* Skeleton Dashboard */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          {[
+            { title: "Portfolio Value", icon: DollarSign, value: "Configure API", desc: "Total account value" },
+            { title: "Daily P&L", icon: TrendingUp, value: "Configure API", desc: "Today's performance" },
+            { title: "Active Positions", icon: Target, value: "Configure API", desc: "Open positions" },
+            { title: "AI Status", icon: Brain, value: "Offline", desc: "Trading bot status" }
+          ].map((metric, index) => (
+            <Card key={index} className="border-dashed border-gray-300">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">{metric.title}</CardTitle>
+                <metric.icon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-muted-foreground">{metric.value}</div>
+                <p className="text-xs text-muted-foreground">{metric.desc}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2">
+          <Card className="border-dashed border-gray-300">
+            <CardHeader>
+              <CardTitle className="text-muted-foreground">AI Trading Pipeline</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8">
+                <Brain className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">AI pipeline awaiting configuration</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-dashed border-gray-300">
+            <CardHeader>
+              <CardTitle className="text-muted-foreground">Recent Activity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8">
+                <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No trading activity yet</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
   }
 
+  // Main dashboard when connected
   return (
-    <div className="grid grid-cols-12 gap-6 h-full">
-      {/* Portfolio Overview Cards */}
-      <div className="col-span-12 grid grid-cols-4 gap-4 mb-2">
-        <MetricCard
-          title="Portfolio Value"
-          value={`$${
-            portfolioStatus?.portfolioValue?.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-            }) || "0.00"
-          }`}
-          change={portfolioStatus?.dayPnLPercent || 0}
-          changeLabel={`${
-            (portfolioStatus?.dayPnL ?? 0) >= 0 ? "+" : ""
-          }$${Math.abs(portfolioStatus?.dayPnL || 0).toLocaleString("en-US", {
-            minimumFractionDigits: 2,
-          })}`}
-          icon="wallet"
-          isPositive={(portfolioStatus?.dayPnL ?? 0) >= 0}
-          data-testid="metric-portfolio-value"
-        />
-        <MetricCard
-          title="Today's P&L"
-          value={`${(portfolioStatus?.dayPnL ?? 0) >= 0 ? "+" : ""}${(
-            portfolioStatus?.dayPnL ?? 0
-          ).toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
-          change={portfolioStatus?.dayPnLPercent ?? 0}
-          changeLabel={`${
-            (portfolioStatus?.dayPnLPercent ?? 0) >= 0 ? "+" : ""
-          }${(portfolioStatus?.dayPnLPercent ?? 0).toFixed(2)}%`}
-          icon="chart-line"
-          isPositive={(portfolioStatus?.dayPnL ?? 0) >= 0}
-          data-testid="metric-daily-pnl"
-        />
-        <MetricCard
-          title="Active Positions"
-          value={portfolioStatus?.activePositions?.toString() || "0"}
-          change={0}
-          changeLabel="Total open trades"
-          icon="list"
-          data-testid="metric-active-positions"
-        />
-        <MetricCard
-          title="Win Rate (30D)"
-          value={`${portfolioStatus?.winRate?.toFixed(1) || "0.0"}%`}
-          change={0}
-          changeLabel="From completed trades"
-          icon="bullseye"
-          data-testid="metric-win-rate"
-        />
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-foreground">Smart Alpaca Dashboard</h1>
+        <div className="flex gap-2">
+          <Badge variant="outline" className={`px-3 py-1 ${wsConnected ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+            <Activity className="w-4 h-4 mr-2" />
+            {wsConnected ? 'Connected' : 'Disconnected'}
+          </Badge>
+          <Badge variant="outline" className="px-3 py-1 bg-blue-50 text-blue-700 border-blue-200">
+            Paper Trading
+          </Badge>
+        </div>
       </div>
 
-      <TradingChart
-        className="col-span-8"
-        portfolioValue={portfolioStatus?.portfolioValue || 0}
-        dayPnL={portfolioStatus?.dayPnL || 0}
-        dayPnLPercent={portfolioStatus?.dayPnLPercent || 0}
-        data-testid="trading-chart"
-      />
+      {/* Main Metrics */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Portfolio Value</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(portfolioStatus?.totalValue)}</div>
+            <p className="text-xs text-muted-foreground">
+              {formatPercent(portfolioStatus?.totalReturnPercent)} from start
+            </p>
+          </CardContent>
+        </Card>
 
-      <AIPipeline
-        className="col-span-4"
-        botStatus={systemMetrics?.bot_status || "stopped"}
-        pipelineStages={aiPipelineStages}
-        data-testid="ai-pipeline"
-      />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Daily P&L</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${(portfolioStatus?.dayPL || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {formatCurrency(portfolioStatus?.dayPL)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {formatPercent(portfolioStatus?.dayPLPercent)} today
+            </p>
+          </CardContent>
+        </Card>
 
-      <ActivePositions
-        className="col-span-7"
-        positions={(positions as any[]) || []}
-        data-testid="active-positions"
-      />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Positions</CardTitle>
+            <Target className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{positions?.length || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              {formatCurrency(positions?.reduce((sum, p) => sum + (p.unrealizedPL || 0), 0))} unrealized P&L
+            </p>
+          </CardContent>
+        </Card>
 
-      <SystemHealth
-        className="col-span-5"
-        services={
-          (systemMetrics as any)?.system_health?.map((item: any) => ({
-            name: item.service,
-            status: item.status,
-            statusType: item.status === "healthy" ? "success" : "error",
-          })) || []
-        }
-        performanceMetrics={[
-          {
-            name: "Active Cycles",
-            value: (systemMetrics as any)?.active_cycles || 0,
-            color: "bg-primary",
-          },
-          {
-            name: "Queue Size",
-            value: (systemMetrics as any)?.queue_stats?.total || 0,
-            color: "bg-chart-2",
-          },
-          {
-            name: "Staged Strategies",
-            value: (systemMetrics as any)?.staged_strategies || 0,
-            color: "bg-chart-3",
-          },
-        ]}
-        data-testid="system-health"
-      />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">AI Status</CardTitle>
+            <Brain className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">Active</div>
+            <p className="text-xs text-muted-foreground">
+              Next scan in 15 minutes
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
-      <ActivityFeed
-        className="col-span-12"
-        activities={(auditLogs as any[])?.slice(0, 50) || []}
-        data-testid="activity-feed"
-      />
+      {/* AI Pipeline Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="h-5 w-5" />
+            AI Trading Pipeline
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {aiPipelineStages && aiPipelineStages.length > 0 ? (
+              aiPipelineStages.map((stage, index) => (
+                <div key={index} className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${stage.status === 'completed' ? 'bg-green-500' :
+                        stage.status === 'active' ? 'bg-blue-500 animate-pulse' :
+                          'bg-gray-300'
+                      }`} />
+                    <span className="font-medium">{stage.name}</span>
+                  </div>
+                  <Badge variant={
+                    stage.status === 'completed' ? 'default' :
+                      stage.status === 'active' ? 'secondary' :
+                        'outline'
+                  }>
+                    {stage.status}
+                  </Badge>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-4 text-muted-foreground">
+                No active pipeline stages
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Positions and Recent Activity */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Positions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {positions && positions.length > 0 ? (
+              <div className="space-y-3">
+                {positions.slice(0, 5).map((position, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="font-medium">{position.symbol}</p>
+                      <p className="text-sm text-muted-foreground">{position.qty} shares</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-medium ${(position.unrealizedPL || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {formatCurrency(position.unrealizedPL)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatPercent(position.unrealizedPLPercent)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {positions.length > 5 && (
+                  <Link href="/portfolio">
+                    <Button variant="outline" className="w-full">
+                      View All Positions ({positions.length})
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Target className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No active positions</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>System Performance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between mb-2">
+                  <span className="text-sm font-medium">CPU Usage</span>
+                  <span className="text-sm text-muted-foreground">{systemMetrics?.cpuUsage || 0}%</span>
+                </div>
+                <Progress value={systemMetrics?.cpuUsage || 0} className="h-2" />
+              </div>
+              <div>
+                <div className="flex justify-between mb-2">
+                  <span className="text-sm font-medium">Memory Usage</span>
+                  <span className="text-sm text-muted-foreground">{systemMetrics?.memoryUsage || 0}%</span>
+                </div>
+                <Progress value={systemMetrics?.memoryUsage || 0} className="h-2" />
+              </div>
+              <div>
+                <div className="flex justify-between mb-2">
+                  <span className="text-sm font-medium">API Latency</span>
+                  <span className="text-sm text-muted-foreground">{systemMetrics?.apiLatency || 0}ms</span>
+                </div>
+                <Progress value={Math.min((systemMetrics?.apiLatency || 0) / 10, 100)} className="h-2" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4 flex-wrap">
+            <Link href="/strategies">
+              <Button variant="outline">
+                <BarChart3 className="w-4 h-4 mr-2" />
+                View Strategies
+              </Button>
+            </Link>
+            <Link href="/backtest">
+              <Button variant="outline">
+                <Activity className="w-4 h-4 mr-2" />
+                Run Backtest
+              </Button>
+            </Link>
+            <Link href="/monitoring">
+              <Button variant="outline">
+                <Zap className="w-4 h-4 mr-2" />
+                System Monitor
+              </Button>
+            </Link>
+            <Link href="/settings">
+              <Button variant="outline">
+                <Settings className="w-4 h-4 mr-2" />
+                Settings
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

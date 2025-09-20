@@ -1,4 +1,6 @@
 import AlpacaClient from "@alpacahq/alpaca-trade-api";
+import { circuitBreakerManager, defaultConfigs } from './circuit-breaker';
+import { retryService, defaultRetryConfigs } from './retry';
 
 export interface AlpacaMarketData {
   symbol: string;
@@ -53,7 +55,11 @@ export interface AlpacaBar {
   l: number; // Low price
   c: number; // Close price
   v: number; // Volume
+  symbol?: string; // Add symbol for strategy compatibility
 }
+
+// Type alias for historical bar compatibility
+export type HistoricalBar = AlpacaBar;
 
 export class AlpacaService {
   private client: AlpacaClient;
@@ -78,73 +84,97 @@ export class AlpacaService {
     });
   }
 
+  /**
+   * Execute function with circuit breaker protection and retry logic
+   */
+  private async executeWithCircuitBreaker<T>(operation: () => Promise<T>, operationName?: string): Promise<T> {
+    const circuitBreaker = circuitBreakerManager.getCircuitBreaker('alpaca', defaultConfigs.alpaca);
+    
+    // Wrap operation with retry logic
+    const retryResult = await retryService.executeWithRetry(
+      () => circuitBreaker.execute(operation),
+      defaultRetryConfigs.externalAPI,
+      operationName ? `alpaca_${operationName}` : 'alpaca_operation'
+    );
+
+    if (!retryResult.success) {
+      throw retryResult.error;
+    }
+
+    return retryResult.result!;
+  }
+
   async getBars(
     symbol: string,
     timeframe: string,
     limit: number
   ): Promise<AlpacaBar[]> {
-    try {
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - limit);
+    return this.executeWithCircuitBreaker(async () => {
+      try {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - limit);
 
-      const barsGenerator = this.client.getBarsV2(symbol, {
-        start: startDate.toISOString(),
-        end: endDate.toISOString(),
-        timeframe: timeframe,
-        limit: limit,
-      });
-
-      const bars: AlpacaBar[] = [];
-      for await (const bar of barsGenerator) {
-        bars.push({
-          t: bar.Timestamp,
-          o: bar.OpenPrice,
-          h: bar.HighPrice,
-          l: bar.LowPrice,
-          c: bar.ClosePrice,
-          v: bar.Volume,
+        const barsGenerator = this.client.getBarsV2(symbol, {
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+          timeframe: timeframe,
+          limit: limit,
         });
+
+        const bars: AlpacaBar[] = [];
+        for await (const bar of barsGenerator) {
+          bars.push({
+            t: bar.Timestamp,
+            o: bar.OpenPrice,
+            h: bar.HighPrice,
+            l: bar.LowPrice,
+            c: bar.ClosePrice,
+            v: bar.Volume,
+          });
+        }
+        return bars;
+      } catch (error) {
+        throw new Error(`Failed to fetch bars for ${symbol}: ${error}`);
       }
-      return bars;
-    } catch (error) {
-      throw new Error(`Failed to fetch bars for ${symbol}: ${error}`);
-    }
+    }, 'getBars');
   }
 
   async getMarketData(symbols: string[]): Promise<AlpacaMarketData[]> {
-    try {
-      const bars = await this.client.getLatestBars(symbols);
+    return this.executeWithCircuitBreaker(async () => {
+      try {
+        const bars = await this.client.getLatestBars(symbols);
 
-      return symbols.map((symbol) => {
-        const bar = bars.get(symbol);
-        if (!bar) {
-          throw new Error(`No market data available for ${symbol}`);
-        }
+        return symbols.map((symbol) => {
+          const bar = bars.get(symbol);
+          if (!bar) {
+            throw new Error(`No market data available for ${symbol}`);
+          }
 
-        const change = bar.ClosePrice - bar.OpenPrice;
-        const changePercent = (change / bar.OpenPrice) * 100;
+          const change = bar.ClosePrice - bar.OpenPrice;
+          const changePercent = (change / bar.OpenPrice) * 100;
 
-        return {
-          symbol,
-          price: bar.ClosePrice,
-          volume: bar.Volume,
-          change,
-          changePercent,
-          high: bar.HighPrice,
-          low: bar.LowPrice,
-          open: bar.OpenPrice,
-          previousClose: bar.OpenPrice, // This should be previous day's close
-          timestamp: new Date(bar.Timestamp),
-        };
-      });
-    } catch (error) {
-      throw new Error(
-        `Failed to fetch market data: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
+          return {
+            symbol,
+            price: bar.ClosePrice,
+            volume: bar.Volume,
+            change,
+            changePercent,
+            high: bar.HighPrice,
+            low: bar.LowPrice,
+            open: bar.OpenPrice,
+            previousClose: bar.OpenPrice, // This should be previous day's close
+            timestamp: new Date(bar.Timestamp),
+          };
+        });
+      } catch (error) {
+        throw new Error(
+          `Failed to fetch market data: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
   }
 
   async getHistoricalBars(
@@ -191,83 +221,89 @@ export class AlpacaService {
     time_in_force?: string;
     limit_price?: number;
   }): Promise<AlpacaOrder> {
-    try {
-      const order = await this.client.createOrder({
-        symbol: orderRequest.symbol,
-        qty: orderRequest.qty,
-        side: orderRequest.side,
-        type: orderRequest.type,
-        time_in_force: orderRequest.time_in_force || "gtc",
-        ...(orderRequest.limit_price && {
-          limit_price: orderRequest.limit_price,
-        }),
-      });
+    return this.executeWithCircuitBreaker(async () => {
+      try {
+        const order = await this.client.createOrder({
+          symbol: orderRequest.symbol,
+          qty: orderRequest.qty,
+          side: orderRequest.side,
+          type: orderRequest.type,
+          time_in_force: orderRequest.time_in_force || "gtc",
+          ...(orderRequest.limit_price && {
+            limit_price: orderRequest.limit_price,
+          }),
+        });
 
-      return {
-        id: order.id,
-        symbol: order.symbol,
-        qty: parseFloat(order.qty),
-        side: order.side,
-        type: order.type,
-        time_in_force: order.time_in_force,
-        status: order.status,
-        filled_at: order.filled_at,
-        filled_qty: order.filled_qty ? parseFloat(order.filled_qty) : undefined,
-        filled_avg_price: order.filled_avg_price
-          ? parseFloat(order.filled_avg_price)
-          : undefined,
-      };
-    } catch (error) {
-      throw new Error(
-        `Failed to place order: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
+        return {
+          id: order.id,
+          symbol: order.symbol,
+          qty: parseFloat(order.qty),
+          side: order.side,
+          type: order.type,
+          time_in_force: order.time_in_force,
+          status: order.status,
+          filled_at: order.filled_at,
+          filled_qty: order.filled_qty ? parseFloat(order.filled_qty) : undefined,
+          filled_avg_price: order.filled_avg_price
+            ? parseFloat(order.filled_avg_price)
+            : undefined,
+        };
+      } catch (error) {
+        throw new Error(
+          `Failed to place order: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }, 'placeOrder');
   }
 
   async getAccount(): Promise<AlpacaAccount> {
-    try {
-      const account = await this.client.getAccount();
+    return this.executeWithCircuitBreaker(async () => {
+      try {
+        const account = await this.client.getAccount();
 
-      return {
-        id: account.id,
-        status: account.status,
-        currency: account.currency,
-        buying_power: parseFloat(account.buying_power),
-        cash: parseFloat(account.cash),
-        portfolio_value: parseFloat(account.portfolio_value),
-        daytrade_count: parseInt(account.daytrade_count),
-      };
-    } catch (error) {
-      throw new Error(
-        `Failed to get account info: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
+        return {
+          id: account.id,
+          status: account.status,
+          currency: account.currency,
+          buying_power: parseFloat(account.buying_power),
+          cash: parseFloat(account.cash),
+          portfolio_value: parseFloat(account.portfolio_value),
+          daytrade_count: parseInt(account.daytrade_count),
+        };
+      } catch (error) {
+        throw new Error(
+          `Failed to get account info: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
   }
 
   async getPositions(): Promise<AlpacaPosition[]> {
-    try {
-      const positions = await this.client.getPositions();
+    return this.executeWithCircuitBreaker(async () => {
+      try {
+        const positions = await this.client.getPositions();
 
-      return positions.map((pos: any) => ({
-        symbol: pos.symbol,
-        qty: parseFloat(pos.qty),
-        avg_entry_price: parseFloat(pos.avg_entry_price),
-        current_price: parseFloat(pos.current_price),
-        market_value: parseFloat(pos.market_value),
-        unrealized_pl: parseFloat(pos.unrealized_pl),
-        unrealized_plpc: parseFloat(pos.unrealized_plpc),
-      }));
-    } catch (error) {
-      throw new Error(
-        `Failed to get positions: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
+        return positions.map((pos: any) => ({
+          symbol: pos.symbol,
+          qty: parseFloat(pos.qty),
+          avg_entry_price: parseFloat(pos.avg_entry_price),
+          current_price: parseFloat(pos.current_price),
+          market_value: parseFloat(pos.market_value),
+          unrealized_pl: parseFloat(pos.unrealized_pl),
+          unrealized_plpc: parseFloat(pos.unrealized_plpc),
+        }));
+      } catch (error) {
+        throw new Error(
+          `Failed to get positions: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
   }
 
   async getPosition(symbol: string): Promise<AlpacaPosition | null> {
@@ -365,6 +401,31 @@ export class AlpacaService {
       );
     }
   }
+
+  async getCurrentPrice(symbol: string): Promise<number> {
+    try {
+      // Get the latest bar for current price (last hour)
+      const end = new Date();
+      const start = new Date(end.getTime() - 60 * 60 * 1000); // 1 hour ago
+      
+      const bars = await this.getHistoricalBars(symbol, start, end, "1Min");
+      if (bars.length > 0) {
+        return bars[bars.length - 1].c; // Return close price of latest bar
+      }
+      throw new Error(`No price data available for ${symbol}`);
+    } catch (error) {
+      throw new Error(
+        `Failed to get current price for ${symbol}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+}
+
+// Export the getCurrentPrice function for strategy usage
+export async function getCurrentPrice(symbol: string): Promise<number> {
+  return alpacaService.getCurrentPrice(symbol);
 }
 
 export const alpacaService = new AlpacaService();

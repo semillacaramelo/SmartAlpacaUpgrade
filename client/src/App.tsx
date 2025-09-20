@@ -9,7 +9,7 @@ import Portfolio from "@/pages/Portfolio";
 import Strategies from "@/pages/Strategies";
 import Backtest from "@/pages/Backtest";
 import AuditLog from "@/pages/AuditLog";
-import RiskManagement from "@/pages/RiskManagement";
+import Monitoring from "@/pages/Monitoring";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 
@@ -22,7 +22,7 @@ function Router() {
       <Route path="/strategies" component={Strategies} />
       <Route path="/backtest" component={Backtest} />
       <Route path="/audit" component={AuditLog} />
-      <Route path="/risk" component={RiskManagement} />
+      <Route path="/monitoring" component={Monitoring} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

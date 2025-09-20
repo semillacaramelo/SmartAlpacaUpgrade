@@ -31,6 +31,17 @@ export interface PositionUpdate {
   timestamp: string;
 }
 
+// Direct position data for internal updates
+export interface PositionData {
+  symbol: string;
+  quantity: number;
+  averageEntryPrice: number;
+  currentPrice: number;
+  unrealizedPnL: number; // Changed from unrealizedPL to match Position interface
+  realizedPnL: number;   // Changed from realizedPL to match Position interface
+  holdingPeriod?: number;
+}
+
 // Trading and Execution Interfaces
 export interface TradeExecution {
   id: string;
@@ -43,6 +54,9 @@ export interface TradeExecution {
   correlationId?: string;
   strategyName?: string;
   aiReasoning?: string;
+  timestamp?: Date;     // Added to match schema
+  executionId?: string; // Added to match schema
+  commission?: number;  // Added to match schema
 }
 
 // Risk Management Interfaces

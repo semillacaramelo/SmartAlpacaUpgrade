@@ -3,8 +3,9 @@ import { getCurrentPrice, type HistoricalBar } from "./alpaca";
 async function evaluateSimpleEntry(bar: HistoricalBar): Promise<boolean> {
   // Simple moving average crossover strategy
   const price = bar.c;
-  const sma20 = await calculateSMA(bar.symbol, 20);
-  const sma50 = await calculateSMA(bar.symbol, 50);
+  const symbol = bar.symbol || "UNKNOWN"; // Provide fallback for optional symbol
+  const sma20 = await calculateSMA(symbol, 20);
+  const sma50 = await calculateSMA(symbol, 50);
 
   return sma20 > sma50 && price > sma20;
 }

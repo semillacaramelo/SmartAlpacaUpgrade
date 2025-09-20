@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { eq } from "drizzle-orm";
-import { riskMetrics, positions } from "../schema";
+import { riskMetrics, positions } from "../../shared/schema";
 import { RiskMetrics } from "../../shared/interfaces";
 import { logger } from "./logger";
 import { metrics } from "./metrics";
@@ -15,6 +15,19 @@ export class RiskControlService {
     riskData: RiskMetrics
   ): Promise<void> {
     try {
+      // Convert RiskMetrics to database format (numbers to strings for decimal fields)
+      const dbRiskData = {
+        sharpeRatio: riskData.sharpeRatio.toString(),
+        maxDrawdown: riskData.maxDrawdown.toString(),
+        volatility: riskData.volatility.toString(),
+        beta: riskData.beta.toString(),
+        alpha: riskData.alpha.toString(),
+        winRate: riskData.winRate.toString(),
+        profitFactor: riskData.profitFactor.toString(),
+        averageReturn: riskData.averageReturn.toString(),
+        totalReturn: riskData.totalReturn.toString(),
+      };
+
       const existing = await db
         .select()
         .from(riskMetrics)
@@ -25,23 +38,26 @@ export class RiskControlService {
         await db
           .update(riskMetrics)
           .set({
-            ...riskData,
-            lastUpdated: new Date(),
+            ...dbRiskData,
+            updatedAt: new Date(),
           })
           .where(eq(riskMetrics.symbol, symbol));
       } else {
         await db.insert(riskMetrics).values({
           symbol,
-          ...riskData,
-          lastUpdated: new Date(),
+          ...dbRiskData,
+          updatedAt: new Date(),
         });
       }
 
-      metrics.increment("risk.metrics.update.success");
-      logger.info("Risk metrics updated successfully", { symbol });
+      metrics.updateApplicationMetrics({ requestRate: metrics.getMetrics().application.requestRate + 1 });
+      logger.log({ operation: "risk.metrics.update.success", metadata: { symbol } });
     } catch (error) {
-      metrics.increment("risk.metrics.update.error");
-      logger.error("Failed to update risk metrics", { error, symbol });
+      metrics.updateApplicationMetrics({ errorRate: metrics.getMetrics().application.errorRate + 1 });
+      logger.error(error instanceof Error ? error : new Error(String(error)), { 
+        operation: "risk.metrics.update.error", 
+        metadata: { symbol }
+      });
       throw error;
     }
   }
@@ -50,13 +66,16 @@ export class RiskControlService {
     symbol: string,
     size: number,
     portfolioValue: number
-  ): boolean {
+  ): Promise<boolean> {
     const sizeRatio = size / portfolioValue;
     if (sizeRatio > this.MAX_POSITION_SIZE) {
       logger.warn("Position size exceeds maximum allowed", {
-        symbol,
-        sizeRatio,
-        maxAllowed: this.MAX_POSITION_SIZE,
+        operation: "position.size.validation",
+        metadata: {
+          symbol,
+          sizeRatio,
+          maxAllowed: this.MAX_POSITION_SIZE,
+        }
       });
       return false;
     }
@@ -66,7 +85,10 @@ export class RiskControlService {
   async checkPortfolioExposure(): Promise<boolean> {
     const allPositions = await db.select().from(positions);
     const totalExposure = allPositions.reduce(
-      (sum, pos) => sum + pos.quantity * pos.currentPrice,
+      (sum, pos) => {
+        const currentPrice = pos.currentPrice ? parseFloat(pos.currentPrice) : 0;
+        return sum + pos.quantity * currentPrice;
+      },
       0
     );
 
@@ -75,8 +97,11 @@ export class RiskControlService {
 
     if (exposureRatio > this.MAX_PORTFOLIO_EXPOSURE) {
       logger.warn("Portfolio exposure exceeds maximum allowed", {
-        exposureRatio,
-        maxAllowed: this.MAX_PORTFOLIO_EXPOSURE,
+        operation: "portfolio.exposure.validation",
+        metadata: {
+          exposureRatio,
+          maxAllowed: this.MAX_PORTFOLIO_EXPOSURE,
+        }
       });
       return false;
     }
@@ -95,14 +120,23 @@ export class RiskControlService {
     }
 
     const pos = position[0];
-    const lossRatio =
-      (pos.averageEntryPrice - pos.currentPrice) / pos.averageEntryPrice;
+    const avgPrice = pos.averageEntryPrice ? parseFloat(pos.averageEntryPrice) : parseFloat(pos.entryPrice);
+    const currentPrice = pos.currentPrice ? parseFloat(pos.currentPrice) : 0;
+    
+    if (avgPrice === 0) {
+      return true; // Can't calculate loss ratio without entry price
+    }
+    
+    const lossRatio = (avgPrice - currentPrice) / avgPrice;
 
     if (lossRatio > this.STOP_LOSS_THRESHOLD) {
       logger.warn("Stop loss triggered", {
-        symbol,
-        lossRatio,
-        threshold: this.STOP_LOSS_THRESHOLD,
+        operation: "stop.loss.triggered",
+        metadata: {
+          symbol,
+          lossRatio,
+          threshold: this.STOP_LOSS_THRESHOLD,
+        }
       });
       return false;
     }

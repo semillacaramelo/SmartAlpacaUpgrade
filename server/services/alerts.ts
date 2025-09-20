@@ -103,7 +103,7 @@ class AlertService extends EventEmitter {
   }
 
   private evaluateRules(metrics: Metrics) {
-    for (const rule of this.rules.values()) {
+    for (const rule of Array.from(this.rules.values())) {
       const isTriggered = rule.condition(metrics);
 
       if (isTriggered && !this.activeAlerts.has(rule.id)) {

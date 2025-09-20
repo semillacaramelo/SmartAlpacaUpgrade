@@ -78,6 +78,7 @@ export interface IStorage {
     status: string,
     metrics: any
   ): Promise<SystemHealth>;
+  healthCheck(): Promise<void>;
 
   // User Settings - now part of users table
   updateUserSettings(userId: string, settings: Partial<User>): Promise<User>;
@@ -295,6 +296,11 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return health;
+  }
+
+  async healthCheck(): Promise<void> {
+    // Simple database connectivity check
+    await db.select().from(users).limit(1);
   }
 
   async updateUserSettings(
